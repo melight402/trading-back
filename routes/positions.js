@@ -190,35 +190,35 @@ const handleOpenPosition = async (req, res, sourceType) => {
       try {
         const orderParams = {
           symbol: positionData.symbol,
-          side: positionData.side || (isLong ? 'BUY' : 'SELL'),
-          type: positionData.type || 'MARKET',
-          quantity: positionData.quantity,
-          positionSide: positionData.positionSide || (isLong ? 'LONG' : 'SHORT')
+          side: String(positionData.side || (isLong ? 'BUY' : 'SELL')),
+          type: String(positionData.type || 'MARKET'),
+          quantity: parseFloat(positionData.quantity).toString(),
+          positionSide: String(positionData.positionSide || (isLong ? 'LONG' : 'SHORT'))
         };
 
         if (positionData.type === 'LIMIT') {
-          orderParams.price = positionData.price.toString();
-          orderParams.timeInForce = positionData.timeInForce || 'GTC';
+          orderParams.price = parseFloat(positionData.price).toString();
+          orderParams.timeInForce = String(positionData.timeInForce || 'GTC');
         }
 
         if (positionData.stopPrice) {
-          orderParams.stopPrice = positionData.stopPrice.toString();
+          orderParams.stopPrice = parseFloat(positionData.stopPrice).toString();
         }
 
-        if (positionData.closePosition) {
-          orderParams.closePosition = positionData.closePosition;
+        if (positionData.closePosition !== undefined) {
+          orderParams.closePosition = Boolean(positionData.closePosition);
         }
 
         if (positionData.reduceOnly !== undefined) {
-          orderParams.reduceOnly = positionData.reduceOnly;
+          orderParams.reduceOnly = Boolean(positionData.reduceOnly);
         }
 
         console.log('Placing Binance futures order:', JSON.stringify(orderParams, null, 2));
         binanceOrderResult = await binanceService.placeFuturesOrder(orderParams);
         console.log('Binance order result:', JSON.stringify(binanceOrderResult, null, 2));
 
-        if (!binanceOrderResult || (binanceOrderResult.status !== 'NEW' && binanceOrderResult.status !== 'FILLED')) {
-          throw new Error(`Order not successfully placed. Status: ${binanceOrderResult?.status || 'unknown'}`);
+        if (!binanceOrderResult || (binanceOrderResult.status !== 'NEW' && binanceOrderResult.status !== 'FILLED' && binanceOrderResult.status !== 'PARTIALLY_FILLED')) {
+          throw new Error(`Order not successfully placed. Status: ${binanceOrderResult?.status || 'unknown'}, Response: ${JSON.stringify(binanceOrderResult)}`);
         }
 
         if (screenshotBuffer) {
@@ -227,10 +227,27 @@ const handleOpenPosition = async (req, res, sourceType) => {
         }
       } catch (error) {
         console.error('Error placing Binance order:', error);
+        const errorMessage = error.message || error.toString();
+        const errorDetails = {
+          message: errorMessage,
+          code: error.code,
+          response: error.response || error.body
+        };
+        
+        if (error.response || error.body) {
+          try {
+            errorDetails.binanceResponse = typeof error.response === 'string' 
+              ? JSON.parse(error.response) 
+              : error.response;
+          } catch (e) {
+            errorDetails.binanceResponse = error.response || error.body;
+          }
+        }
+        
         return res.status(500).json({ 
           error: 'Failed to place order on Binance', 
-          details: error.message,
-          binanceError: error.message
+          details: errorMessage,
+          binanceError: errorDetails
         });
       }
     } else {
