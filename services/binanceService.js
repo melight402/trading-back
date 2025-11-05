@@ -1,5 +1,6 @@
 import Binance from 'node-binance-api';
 import crypto from 'crypto';
+import * as binancePrecision from '../utils/binancePrecision.js';
 
 let binanceClient = null;
 
@@ -128,16 +129,22 @@ export const placeFuturesOrder = async (orderParams) => {
       throw new Error(`Invalid API key format. API key length is ${credentials.apiKey.length}, expected ~64 characters. Please check your .env file and ensure BINANCE_API_KEY contains the full key without quotes or spaces.`);
     }
     
+    const symbol = String(orderParams.symbol);
+    const quantity = parseFloat(orderParams.quantity);
+    const roundedQuantity = binancePrecision.roundQuantity(quantity, symbol);
+    
     const params = {
-      symbol: String(orderParams.symbol),
+      symbol: symbol,
       side: String(orderParams.side),
       type: String(orderParams.type),
-      quantity: String(orderParams.quantity),
+      quantity: String(roundedQuantity),
       positionSide: String(orderParams.positionSide)
     };
 
     if (orderParams.price) {
-      params.price = String(orderParams.price);
+      const price = parseFloat(orderParams.price);
+      const roundedPrice = binancePrecision.roundPrice(price, symbol);
+      params.price = String(roundedPrice);
     }
 
     if (orderParams.timeInForce) {
@@ -145,7 +152,9 @@ export const placeFuturesOrder = async (orderParams) => {
     }
 
     if (orderParams.stopPrice) {
-      params.stopPrice = String(orderParams.stopPrice);
+      const stopPrice = parseFloat(orderParams.stopPrice);
+      const roundedStopPrice = binancePrecision.roundPrice(stopPrice, symbol);
+      params.stopPrice = String(roundedStopPrice);
     }
 
     if (orderParams.closePosition !== undefined) {
