@@ -12,9 +12,11 @@
   "keywords": [
     "trading",
     "binance",
-    "api"
+    "api",
+    "backend",
+    "crypto"
   ],
-  "author": "",
+  "author": "melight402",
   "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
