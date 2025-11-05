@@ -257,11 +257,18 @@ const handleOpenPosition = async (req, res, sourceType) => {
       }
     }
 
+    const quantity = parseFloat(positionData.quantity);
+    const positionUsdt = positionData.positionUsdt !== undefined && positionData.positionUsdt !== null
+      ? parseFloat(positionData.positionUsdt)
+      : (!isNaN(price) && !isNaN(quantity) && price > 0 && quantity > 0 
+          ? Math.round((price * quantity) * 100) / 100 
+          : null);
+
     db.run(
       `INSERT INTO positions (
         symbol, position_side, price, quantity, stop_loss_price, 
-        take_profit_price, tvx, open_date_time, open_screenshot_path, risk_reward_ratio, source_type, line_tool_id, risk_usdt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        take_profit_price, tvx, open_date_time, open_screenshot_path, risk_reward_ratio, source_type, line_tool_id, risk_usdt, position_usdt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         positionData.symbol,
         positionData.positionSide,
@@ -275,7 +282,8 @@ const handleOpenPosition = async (req, res, sourceType) => {
         riskRewardRatio,
         finalSourceType,
         positionData.lineToolId || null,
-        parseFloat(positionData.risk)
+        parseFloat(positionData.risk),
+        positionUsdt
       ],
       function(err) {
         if (err) {
