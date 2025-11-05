@@ -98,6 +98,23 @@ export const placeOrder = async (orderParams) => {
   }
 };
 
+export const placeFuturesOrder = async (orderParams) => {
+  try {
+    const client = getBinanceClient();
+    return new Promise((resolve, reject) => {
+      client.futuresOrder(orderParams, (error, response) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(response);
+        }
+      });
+    });
+  } catch (error) {
+    throw error;
+  }
+};
+
 export const testConnection = async () => {
   try {
     await getAccountInfo();

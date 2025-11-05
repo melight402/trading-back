@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { db } from '../db/database.js';
+import * as binanceService from '../services/binanceService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,19 +15,16 @@ if (!fs.existsSync(screenshotsPath)) {
   fs.mkdirSync(screenshotsPath, { recursive: true });
 }
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, screenshotsPath);
-  },
-  filename: (req, file, cb) => {
-    const timestamp = Date.now();
-    const filename = `screenshot_${timestamp}_${Math.random().toString(36).substring(7)}.png`;
-    cb(null, filename);
-  }
-});
+const saveScreenshot = (buffer) => {
+  const timestamp = Date.now();
+  const filename = `screenshot_${timestamp}_${Math.random().toString(36).substring(7)}.png`;
+  const filePath = path.join(screenshotsPath, filename);
+  fs.writeFileSync(filePath, buffer);
+  return filename;
+};
 
 const upload = multer({
-  storage: storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
@@ -134,7 +132,7 @@ router.post('/', (req, res) => {
     });
 });
 
-const handleOpenPosition = (req, res, sourceType) => {
+const handleOpenPosition = async (req, res, sourceType) => {
   try {
     let positionData;
     
@@ -157,11 +155,7 @@ const handleOpenPosition = (req, res, sourceType) => {
       return res.status(400).json({ error: 'Risk must be greater than zero. Risk field is required and must be a positive number in USDT.' });
     }
 
-    let screenshotPath = null;
-    if (req.file) {
-      screenshotPath = req.file.filename;
-      console.log('Screenshot saved:', screenshotPath);
-    }
+    const screenshotBuffer = req.file ? req.file.buffer : null;
 
     const price = parseFloat(positionData.price);
     const stopLossPrice = parseFloat(positionData.stopLossPrice);
@@ -182,6 +176,68 @@ const handleOpenPosition = (req, res, sourceType) => {
 
     if (risk > 0) {
       riskRewardRatio = reward / risk;
+    }
+
+    let binanceOrderResult = null;
+
+    let screenshotPath = null;
+
+    if (finalSourceType === 'trading') {
+      if (!positionData.type) {
+        return res.status(400).json({ error: 'Order type is required for trading positions' });
+      }
+
+      try {
+        const orderParams = {
+          symbol: positionData.symbol,
+          side: positionData.side || (isLong ? 'BUY' : 'SELL'),
+          type: positionData.type || 'MARKET',
+          quantity: positionData.quantity,
+          positionSide: positionData.positionSide || (isLong ? 'LONG' : 'SHORT')
+        };
+
+        if (positionData.type === 'LIMIT') {
+          orderParams.price = positionData.price.toString();
+          orderParams.timeInForce = positionData.timeInForce || 'GTC';
+        }
+
+        if (positionData.stopPrice) {
+          orderParams.stopPrice = positionData.stopPrice.toString();
+        }
+
+        if (positionData.closePosition) {
+          orderParams.closePosition = positionData.closePosition;
+        }
+
+        if (positionData.reduceOnly !== undefined) {
+          orderParams.reduceOnly = positionData.reduceOnly;
+        }
+
+        console.log('Placing Binance futures order:', JSON.stringify(orderParams, null, 2));
+        binanceOrderResult = await binanceService.placeFuturesOrder(orderParams);
+        console.log('Binance order result:', JSON.stringify(binanceOrderResult, null, 2));
+
+        if (!binanceOrderResult || (binanceOrderResult.status !== 'NEW' && binanceOrderResult.status !== 'FILLED')) {
+          throw new Error(`Order not successfully placed. Status: ${binanceOrderResult?.status || 'unknown'}`);
+        }
+
+        if (screenshotBuffer) {
+          screenshotPath = saveScreenshot(screenshotBuffer);
+          console.log('Screenshot saved after successful order:', screenshotPath);
+        }
+      } catch (error) {
+        console.error('Error placing Binance order:', error);
+        return res.status(500).json({ 
+          error: 'Failed to place order on Binance', 
+          details: error.message,
+          binanceError: error.message
+        });
+      }
+    } else {
+      if (screenshotBuffer) {
+        screenshotPath = saveScreenshot(screenshotBuffer);
+        console.log('Screenshot saved for history position:', screenshotPath);
+      }
     }
 
     db.run(
@@ -207,19 +263,33 @@ const handleOpenPosition = (req, res, sourceType) => {
       function(err) {
         if (err) {
           console.error('Error saving position:', err);
+          if (screenshotPath && fs.existsSync(path.join(screenshotsPath, screenshotPath))) {
+            fs.unlinkSync(path.join(screenshotsPath, screenshotPath));
+          }
+          if (binanceOrderResult && finalSourceType === 'trading') {
+            console.error('WARNING: Position saved in Binance but failed to save in database!');
+          }
           return res.status(500).json({ error: 'Failed to save position', details: err.message });
         }
 
-        res.json({
+        const responseData = {
           success: true,
-          message: 'Position data saved',
+          message: finalSourceType === 'trading' 
+            ? 'Position opened and order placed on Binance' 
+            : 'Position data saved',
           id: this.lastID,
           data: {
             ...positionData,
             openScreenshotPath: screenshotPath,
             openScreenshotUrl: screenshotPath ? `/api/screenshots/${screenshotPath}` : null
           }
-        });
+        };
+
+        if (binanceOrderResult) {
+          responseData.binanceOrder = binanceOrderResult;
+        }
+
+        res.json(responseData);
       }
     );
   } catch (error) {
