@@ -188,17 +188,25 @@ const handleOpenPosition = async (req, res, sourceType) => {
       }
 
       try {
+        const orderType = String(positionData.type || 'MARKET');
+        const isPostOnly = orderType === 'POST_ONLY';
+        const finalOrderType = isPostOnly ? 'LIMIT' : orderType;
+        
         const orderParams = {
           symbol: positionData.symbol,
           side: String(positionData.side || (isLong ? 'BUY' : 'SELL')),
-          type: String(positionData.type || 'MARKET'),
+          type: finalOrderType,
           quantity: parseFloat(positionData.quantity).toString(),
           positionSide: String(positionData.positionSide || (isLong ? 'LONG' : 'SHORT'))
         };
 
-        if (positionData.type === 'LIMIT') {
+        if (finalOrderType === 'LIMIT' || isPostOnly) {
           orderParams.price = parseFloat(positionData.price).toString();
-          orderParams.timeInForce = String(positionData.timeInForce || 'GTC');
+          if (isPostOnly) {
+            orderParams.timeInForce = 'GTX';
+          } else {
+            orderParams.timeInForce = String(positionData.timeInForce || 'GTC');
+          }
         }
 
         if (positionData.stopPrice) {
@@ -228,21 +236,13 @@ const handleOpenPosition = async (req, res, sourceType) => {
       } catch (error) {
         console.error('Error placing Binance order:', error);
         const errorMessage = error.message || error.toString();
-        const errorDetails = {
-          message: errorMessage,
-          code: error.code,
-          response: error.response || error.body
-        };
+        const binanceResponse = error.binanceResponse || {};
         
-        if (error.response || error.body) {
-          try {
-            errorDetails.binanceResponse = typeof error.response === 'string' 
-              ? JSON.parse(error.response) 
-              : error.response;
-          } catch (e) {
-            errorDetails.binanceResponse = error.response || error.body;
-          }
-        }
+        const errorDetails = {
+          message: binanceResponse.msg || errorMessage,
+          code: binanceResponse.code || error.code,
+          binanceResponse: binanceResponse
+        };
         
         return res.status(500).json({ 
           error: 'Failed to place order on Binance', 
@@ -350,9 +350,19 @@ router.post('/trading/close', upload.single('screenshot'), (req, res) => {
     }
 
     let screenshotPath = null;
-    if (req.file) {
-      screenshotPath = req.file.filename;
-      console.log('Screenshot saved:', screenshotPath);
+    console.log('=== CHECKING SCREENSHOT (TRADING) ===');
+    console.log('req.file:', req.file ? `EXISTS - size: ${req.file.size}, mimetype: ${req.file.mimetype}, buffer: ${req.file.buffer ? 'present' : 'missing'}` : 'NULL/UNDEFINED');
+    
+    if (req.file && req.file.buffer) {
+      screenshotPath = saveScreenshot(req.file.buffer);
+      console.log('✅ Screenshot saved:', screenshotPath, 'Size:', req.file.size, 'bytes');
+    } else {
+      console.error('❌ NO SCREENSHOT FILE RECEIVED in close position request for trading');
+      if (req.file) {
+        console.error('req.file exists but no buffer. Keys:', Object.keys(req.file));
+      }
+      console.error('req.body keys:', Object.keys(req.body));
+      console.error('req.headers content-type:', req.headers['content-type']);
     }
 
     db.get(
@@ -407,6 +417,7 @@ router.post('/trading/close', upload.single('screenshot'), (req, res) => {
               return res.status(500).json({ error: 'Failed to close position', details: updateErr.message });
             }
 
+            console.log('Position closed successfully. Screenshot path:', screenshotPath || 'none');
             res.json({
               success: true,
               message: 'Position closed',
@@ -454,9 +465,19 @@ router.post('/history/close', upload.single('screenshot'), (req, res) => {
     }
 
     let screenshotPath = null;
-    if (req.file) {
-      screenshotPath = req.file.filename;
-      console.log('Screenshot saved:', screenshotPath);
+    console.log('=== CHECKING SCREENSHOT (HISTORY) ===');
+    console.log('req.file:', req.file ? `EXISTS - size: ${req.file.size}, mimetype: ${req.file.mimetype}, buffer: ${req.file.buffer ? 'present' : 'missing'}` : 'NULL/UNDEFINED');
+    
+    if (req.file && req.file.buffer) {
+      screenshotPath = saveScreenshot(req.file.buffer);
+      console.log('✅ Screenshot saved:', screenshotPath, 'Size:', req.file.size, 'bytes');
+    } else {
+      console.error('❌ NO SCREENSHOT FILE RECEIVED in close position request for history');
+      if (req.file) {
+        console.error('req.file exists but no buffer. Keys:', Object.keys(req.file));
+      }
+      console.error('req.body keys:', Object.keys(req.body));
+      console.error('req.headers content-type:', req.headers['content-type']);
     }
 
     db.get(
@@ -511,6 +532,7 @@ router.post('/history/close', upload.single('screenshot'), (req, res) => {
               return res.status(500).json({ error: 'Failed to close position', details: updateErr.message });
             }
 
+            console.log('Position closed successfully (history). Screenshot path:', screenshotPath || 'none');
             res.json({
               success: true,
               message: 'Position closed',

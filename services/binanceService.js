@@ -165,7 +165,7 @@ export const placeFuturesOrder = async (orderParams) => {
       params.reduceOnly = orderParams.reduceOnly;
     }
 
-    if (!params.timeInForce && (params.type.includes('LIMIT') || params.type === 'STOP' || params.type === 'TAKE_PROFIT')) {
+    if (!params.timeInForce && (params.type === 'LIMIT' || params.type === 'STOP' || params.type === 'TAKE_PROFIT')) {
       params.timeInForce = 'GTX';
     }
 
@@ -175,6 +175,7 @@ export const placeFuturesOrder = async (orderParams) => {
 
     const timestamp = Date.now();
     params.timestamp = timestamp;
+    params.recvWindow = 60000;
 
     const sortedKeys = Object.keys(params).sort();
     const queryParts = [];
@@ -236,7 +237,10 @@ export const placeFuturesOrder = async (orderParams) => {
       console.error('Binance API error:', errorMsg);
       console.error('Response data:', JSON.stringify(data, null, 2));
       console.error('Request URL (without signature):', url.replace(/signature=[^&]+/, 'signature=***'));
-      throw new Error(errorMsg);
+      const error = new Error(errorMsg);
+      error.code = data.code;
+      error.binanceResponse = data;
+      throw error;
     }
 
     console.log('Binance order result:', JSON.stringify(data, null, 2));
