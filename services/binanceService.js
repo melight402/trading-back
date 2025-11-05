@@ -149,11 +149,11 @@ export const placeFuturesOrder = async (orderParams) => {
     }
 
     if (orderParams.closePosition !== undefined) {
-      params.closePosition = orderParams.closePosition ? 'true' : 'false';
+      params.closePosition = orderParams.closePosition;
     }
 
     if (orderParams.reduceOnly !== undefined) {
-      params.reduceOnly = orderParams.reduceOnly ? 'true' : 'false';
+      params.reduceOnly = orderParams.reduceOnly;
     }
 
     if (!params.timeInForce && (params.type.includes('LIMIT') || params.type === 'STOP' || params.type === 'TAKE_PROFIT')) {
@@ -168,14 +168,43 @@ export const placeFuturesOrder = async (orderParams) => {
     params.timestamp = timestamp;
 
     const sortedKeys = Object.keys(params).sort();
-    const queryString = sortedKeys
-      .map(key => `${key}=${encodeURIComponent(params[key])}`)
-      .join('&');
+    const queryParts = [];
+    
+    for (const key of sortedKeys) {
+      const value = params[key];
+      let paramValue;
+      
+      if (value === null || value === undefined) {
+        continue;
+      }
+      
+      if (typeof value === 'boolean') {
+        paramValue = value.toString();
+      } else if (typeof value === 'number') {
+        paramValue = value.toString();
+      } else {
+        paramValue = String(value);
+      }
+      
+      queryParts.push(`${key}=${paramValue}`);
+    }
+    
+    const queryString = queryParts.join('&');
+
+    console.log('Query string for signature:', queryString);
+    console.log('Secret Key length:', credentials.secretKey.length);
+    
+    if (credentials.secretKey.length < 30) {
+      console.error('ERROR: Secret key is too short! Expected ~64 characters.');
+      throw new Error(`Invalid secret key format. Secret key length is ${credentials.secretKey.length}, expected ~64 characters. Please check your .env file and ensure BINANCE_SECRET_KEY contains the full secret key without quotes or spaces.`);
+    }
 
     const signature = crypto
       .createHmac('sha256', credentials.secretKey)
       .update(queryString)
       .digest('hex');
+
+    console.log('Computed signature (first 20 chars):', signature.substring(0, 20) + '...');
 
     const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
 
