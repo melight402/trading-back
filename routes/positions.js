@@ -200,7 +200,7 @@ const handleOpenPosition = async (req, res, sourceType) => {
           positionSide: String(positionData.positionSide || (isLong ? 'LONG' : 'SHORT'))
         };
 
-        if (finalOrderType === 'LIMIT' || isPostOnly || finalOrderType === 'TAKE_PROFIT') {
+        if (finalOrderType === 'LIMIT' || isPostOnly || finalOrderType === 'TAKE_PROFIT' || finalOrderType === 'STOP') {
           if (positionData.price) {
             orderParams.price = parseFloat(positionData.price).toString();
           }
