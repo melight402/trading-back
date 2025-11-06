@@ -221,6 +221,24 @@ const handleOpenPosition = async (req, res, sourceType) => {
           orderParams.reduceOnly = Boolean(positionData.reduceOnly);
         }
 
+        const orderQuantity = parseFloat(orderParams.quantity);
+        const orderPrice = orderParams.price ? parseFloat(orderParams.price) : price;
+        const notionalValue = orderQuantity * orderPrice;
+        const MIN_NOTIONAL = 20;
+
+        if (notionalValue < MIN_NOTIONAL && !orderParams.reduceOnly) {
+          return res.status(400).json({ 
+            error: `Order notional value (${notionalValue.toFixed(2)} USDT) is below Binance minimum of ${MIN_NOTIONAL} USDT`,
+            details: {
+              quantity: orderQuantity,
+              price: orderPrice,
+              notionalValue: notionalValue.toFixed(2),
+              minimumRequired: MIN_NOTIONAL,
+              suggestion: `Increase quantity to at least ${(MIN_NOTIONAL / orderPrice).toFixed(6)} or increase risk amount`
+            }
+          });
+        }
+
         console.log('Placing Binance futures order:', JSON.stringify(orderParams, null, 2));
         binanceOrderResult = await binanceService.placeFuturesOrder(orderParams);
         console.log('Binance order result:', JSON.stringify(binanceOrderResult, null, 2));
