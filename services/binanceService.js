@@ -166,11 +166,11 @@ export const placeFuturesOrder = async (orderParams) => {
       params.closePosition = orderParams.closePosition;
     }
 
-    if (orderParams.reduceOnly !== undefined && params.type !== 'TAKE_PROFIT' && params.type !== 'TAKE_PROFIT_MARKET') {
+    if (orderParams.reduceOnly !== undefined && params.type !== 'TAKE_PROFIT' && params.type !== 'TAKE_PROFIT_MARKET' && params.type !== 'STOP_MARKET') {
       params.reduceOnly = orderParams.reduceOnly;
     }
     
-    if (params.type === 'TAKE_PROFIT_MARKET' && orderParams.reduceOnly === undefined) {
+    if ((params.type === 'TAKE_PROFIT_MARKET' || params.type === 'STOP_MARKET') && orderParams.reduceOnly === undefined && orderParams.closePosition) {
       params.reduceOnly = true;
     }
 

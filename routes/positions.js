@@ -145,6 +145,7 @@ const handleOpenPosition = async (req, res, sourceType) => {
     const finalSourceType = sourceType || null;
 
     console.log('Received position data:', JSON.stringify(positionData, null, 2));
+    console.log('Order type:', positionData.type, 'closePosition:', positionData.closePosition);
 
     if (!positionData.dateTime || !positionData.positionSide || !positionData.symbol || 
         !positionData.price || !positionData.quantity || !positionData.stopLossPrice || !positionData.takeProfitPrice) {
@@ -227,10 +228,12 @@ const handleOpenPosition = async (req, res, sourceType) => {
           orderParams.workingType = String(positionData.workingType);
         }
 
-        const orderQuantity = parseFloat(orderParams.quantity);
+        const orderQuantity = orderParams.quantity ? parseFloat(orderParams.quantity) : 0;
         const orderPrice = orderParams.price ? parseFloat(orderParams.price) : price;
         const notionalValue = orderQuantity * orderPrice;
         const MIN_NOTIONAL = 20;
+
+        console.log('Order validation - type:', finalOrderType, 'quantity:', orderQuantity, 'price:', orderPrice, 'notionalValue:', notionalValue, 'reduceOnly:', orderParams.reduceOnly, 'closePosition:', orderParams.closePosition);
 
         if (notionalValue < MIN_NOTIONAL && !orderParams.reduceOnly && !orderParams.closePosition) {
           return res.status(400).json({ 
