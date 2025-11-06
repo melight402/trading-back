@@ -148,8 +148,12 @@ const handleOpenPosition = async (req, res, sourceType) => {
     console.log('Order type:', positionData.type, 'closePosition:', positionData.closePosition);
 
     if (!positionData.dateTime || !positionData.positionSide || !positionData.symbol || 
-        !positionData.price || !positionData.quantity || !positionData.stopLossPrice || !positionData.takeProfitPrice) {
-      return res.status(400).json({ error: 'Missing required fields: dateTime, positionSide, symbol, price, quantity, stopLossPrice, and takeProfitPrice are required' });
+        !positionData.price || !positionData.stopLossPrice || !positionData.takeProfitPrice) {
+      return res.status(400).json({ error: 'Missing required fields: dateTime, positionSide, symbol, price, stopLossPrice, and takeProfitPrice are required' });
+    }
+
+    if (!positionData.closePosition && !positionData.quantity) {
+      return res.status(400).json({ error: 'Missing required field: quantity is required when closePosition is not true' });
     }
 
     if (!positionData.risk || isNaN(parseFloat(positionData.risk)) || parseFloat(positionData.risk) <= 0) {
