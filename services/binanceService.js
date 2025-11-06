@@ -161,8 +161,12 @@ export const placeFuturesOrder = async (orderParams) => {
       params.closePosition = orderParams.closePosition;
     }
 
-    if (orderParams.reduceOnly !== undefined) {
+    if (orderParams.reduceOnly !== undefined && params.type !== 'TAKE_PROFIT') {
       params.reduceOnly = orderParams.reduceOnly;
+    }
+
+    if (orderParams.workingType) {
+      params.workingType = String(orderParams.workingType);
     }
 
     if (!params.timeInForce && (params.type === 'LIMIT' || params.type === 'STOP' || params.type === 'TAKE_PROFIT')) {

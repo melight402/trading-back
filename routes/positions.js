@@ -200,8 +200,10 @@ const handleOpenPosition = async (req, res, sourceType) => {
           positionSide: String(positionData.positionSide || (isLong ? 'LONG' : 'SHORT'))
         };
 
-        if (finalOrderType === 'LIMIT' || isPostOnly) {
-          orderParams.price = parseFloat(positionData.price).toString();
+        if (finalOrderType === 'LIMIT' || isPostOnly || finalOrderType === 'TAKE_PROFIT') {
+          if (positionData.price) {
+            orderParams.price = parseFloat(positionData.price).toString();
+          }
           if (isPostOnly) {
             orderParams.timeInForce = 'GTX';
           } else {
@@ -219,6 +221,10 @@ const handleOpenPosition = async (req, res, sourceType) => {
 
         if (positionData.reduceOnly !== undefined) {
           orderParams.reduceOnly = Boolean(positionData.reduceOnly);
+        }
+
+        if (positionData.workingType) {
+          orderParams.workingType = String(positionData.workingType);
         }
 
         const orderQuantity = parseFloat(orderParams.quantity);
