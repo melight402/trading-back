@@ -232,7 +232,7 @@ const handleOpenPosition = async (req, res, sourceType) => {
         const notionalValue = orderQuantity * orderPrice;
         const MIN_NOTIONAL = 20;
 
-        if (notionalValue < MIN_NOTIONAL && !orderParams.reduceOnly) {
+        if (notionalValue < MIN_NOTIONAL && !orderParams.reduceOnly && !orderParams.closePosition) {
           return res.status(400).json({ 
             error: `Order notional value (${notionalValue.toFixed(2)} USDT) is below Binance minimum of ${MIN_NOTIONAL} USDT`,
             details: {
