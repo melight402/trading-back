@@ -118,7 +118,8 @@ router.get('/history_positions', (req, res) => {
         loss_amount: trade.loss_amount,
         risk_reward_ratio: trade.risk_reward_ratio,
         risk_usdt: trade.risk_usdt,
-        tvx: trade.tvx
+        tvx: trade.tvx,
+        note: trade.note
       }));
 
       res.json({ trades, count: trades.length });
@@ -218,7 +219,8 @@ router.get('/history', (req, res) => {
         loss_amount: trade.loss_amount,
         risk_reward_ratio: trade.risk_reward_ratio,
         risk_usdt: trade.risk_usdt,
-        tvx: trade.tvx
+        tvx: trade.tvx,
+        note: trade.note
       }));
 
       res.json({ trades, count: trades.length });

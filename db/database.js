@@ -86,6 +86,10 @@ export const initDatabase = () => {
       `, () => {});
 
       db.run(`
+        ALTER TABLE positions ADD COLUMN note TEXT;
+      `, () => {});
+
+      db.run(`
         CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol);
       `);
 

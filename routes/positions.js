@@ -428,7 +428,7 @@ router.post('/trading/close', upload.single('screenshot'), (req, res) => {
           `UPDATE positions 
            SET close_date_time = ?, profit_loss = ?, close_screenshot_path = ?, 
                purchase_volume = ?, commission = ?, profit_amount = ?, loss_amount = ?, 
-               stop_loss_price = ?, take_profit_price = ?, updated_at = CURRENT_TIMESTAMP
+               stop_loss_price = ?, take_profit_price = ?, note = ?, updated_at = CURRENT_TIMESTAMP
            WHERE id = ?`,
           [
             closeData.dateTime || new Date().toISOString(),
@@ -440,6 +440,7 @@ router.post('/trading/close', upload.single('screenshot'), (req, res) => {
             lossAmount,
             closeData.stopLossPrice,
             closeData.takeProfitPrice,
+            closeData.note || null,
             existingPosition.id
           ],
           function(updateErr) {
@@ -543,7 +544,7 @@ router.post('/history/close', upload.single('screenshot'), (req, res) => {
           `UPDATE positions 
            SET close_date_time = ?, profit_loss = ?, close_screenshot_path = ?, 
                purchase_volume = ?, commission = ?, profit_amount = ?, loss_amount = ?, 
-               stop_loss_price = ?, take_profit_price = ?, updated_at = CURRENT_TIMESTAMP
+               stop_loss_price = ?, take_profit_price = ?, note = ?, updated_at = CURRENT_TIMESTAMP
            WHERE id = ?`,
           [
             closeData.dateTime || new Date().toISOString(),
@@ -555,6 +556,7 @@ router.post('/history/close', upload.single('screenshot'), (req, res) => {
             lossAmount,
             closeData.stopLossPrice,
             closeData.takeProfitPrice,
+            closeData.note || null,
             existingPosition.id
           ],
           function(updateErr) {
