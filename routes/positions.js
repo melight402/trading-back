@@ -681,5 +681,45 @@ router.get('/', (req, res) => {
   });
 });
 
+// Update position fields (partial update). Currently supports updating `tvx` and `note`.
+router.patch('/:id', (req, res) => {
+  const { id } = req.params;
+  const { tvx, note } = req.body;
+
+  if (tvx === undefined && note === undefined) {
+    return res.status(400).json({ error: 'No updatable fields provided' });
+  }
+
+  const fields = [];
+  const params = [];
+
+  if (tvx !== undefined) {
+    fields.push('tvx = ?');
+    params.push(tvx || null);
+  }
+
+  if (note !== undefined) {
+    fields.push('note = ?');
+    params.push(note || null);
+  }
+
+  params.push(id);
+
+  const sql = `UPDATE positions SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
+
+  db.run(sql, params, function(err) {
+    if (err) {
+      console.error('Error updating position:', err);
+      return res.status(500).json({ error: 'Failed to update position', details: err.message });
+    }
+
+    if (this.changes === 0) {
+      return res.status(404).json({ error: 'Position not found' });
+    }
+
+    res.json({ success: true, id, updated: { tvx, note } });
+  });
+});
+
 export default router;
 
