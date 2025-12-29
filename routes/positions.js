@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const screenshotsPath = process.env.SCREENSHOTS_PATH || path.join(__dirname, '../data/screenshots');
-
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 if (!fs.existsSync(screenshotsPath)) {
   fs.mkdirSync(screenshotsPath, { recursive: true });
 }
@@ -298,8 +298,8 @@ const handleOpenPosition = async (req, res, sourceType) => {
     db.run(
       `INSERT INTO positions (
         symbol, position_side, price, quantity, stop_loss_price, 
-        take_profit_price, tvx, open_date_time, open_screenshot_path, risk_reward_ratio, source_type, line_tool_id, risk_usdt, position_usdt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        take_profit_price, timeframe, tvx, open_date_time, open_screenshot_path, risk_reward_ratio, source_type, line_tool_id, risk_usdt, position_usdt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         positionData.symbol,
         positionData.positionSide,
@@ -307,6 +307,7 @@ const handleOpenPosition = async (req, res, sourceType) => {
         positionData.quantity,
         positionData.stopLossPrice,
         positionData.takeProfitPrice,
+        positionData.timeframe || null,
         positionData.tvx || null,
         positionData.dateTime,
         screenshotPath,
