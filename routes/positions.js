@@ -10,7 +10,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const screenshotsPath = process.env.SCREENSHOTS_PATH || path.join(__dirname, '../data/screenshots');
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 if (!fs.existsSync(screenshotsPath)) {
   fs.mkdirSync(screenshotsPath, { recursive: true });
 }
@@ -682,12 +681,12 @@ router.get('/', (req, res) => {
   });
 });
 
-// Update position fields (partial update). Currently supports updating `tvx` and `note`.
+// Update position fields (partial update). Supports updating `tvx`, `note`, and `outcome` (maps to profit_loss).
 router.patch('/:id', (req, res) => {
   const { id } = req.params;
-  const { tvx, note } = req.body;
+  const { tvx, note, outcome } = req.body;
 
-  if (tvx === undefined && note === undefined) {
+  if (tvx === undefined && note === undefined && outcome === undefined) {
     return res.status(400).json({ error: 'No updatable fields provided' });
   }
 
@@ -704,6 +703,12 @@ router.patch('/:id', (req, res) => {
     params.push(note || null);
   }
 
+  if (outcome !== undefined) {
+    // store outcome in profit_loss column to keep existing schema
+    fields.push('profit_loss = ?');
+    params.push(outcome || null);
+  }
+
   params.push(id);
 
   const sql = `UPDATE positions SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
@@ -718,7 +723,10 @@ router.patch('/:id', (req, res) => {
       return res.status(404).json({ error: 'Position not found' });
     }
 
-    res.json({ success: true, id, updated: { tvx, note } });
+    const updated = { tvx, note };
+    if (outcome !== undefined) updated.outcome = outcome;
+
+    res.json({ success: true, id, updated });
   });
 });
 
