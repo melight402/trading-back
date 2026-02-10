@@ -681,12 +681,11 @@ router.get('/', (req, res) => {
   });
 });
 
-// Update position fields (partial update). Supports updating `tvx`, `note`, and `outcome` (maps to profit_loss).
 router.patch('/:id', (req, res) => {
   const { id } = req.params;
-  const { tvx, note, outcome } = req.body;
+  const { tvx, note } = req.body;
 
-  if (tvx === undefined && note === undefined && outcome === undefined) {
+  if (tvx === undefined && note === undefined) {
     return res.status(400).json({ error: 'No updatable fields provided' });
   }
 
@@ -703,12 +702,6 @@ router.patch('/:id', (req, res) => {
     params.push(note || null);
   }
 
-  if (outcome !== undefined) {
-    // store outcome in profit_loss column to keep existing schema
-    fields.push('profit_loss = ?');
-    params.push(outcome || null);
-  }
-
   params.push(id);
 
   const sql = `UPDATE positions SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
@@ -723,10 +716,7 @@ router.patch('/:id', (req, res) => {
       return res.status(404).json({ error: 'Position not found' });
     }
 
-    const updated = { tvx, note };
-    if (outcome !== undefined) updated.outcome = outcome;
-
-    res.json({ success: true, id, updated });
+    res.json({ success: true, id, updated: { tvx, note } });
   });
 });
 
