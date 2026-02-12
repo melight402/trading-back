@@ -16,6 +16,7 @@ router.get('/history_positions', (req, res) => {
     session,
     sourceType,
     status,
+    weekdays,
     limit = 100,
     offset = 0
   } = req.query;
@@ -121,6 +122,14 @@ router.get('/history_positions', (req, res) => {
         tvx: trade.tvx,
         note: trade.note
       }));
+
+      if (selectedWeekdays.length > 0) {
+        trades = trades.filter(trade => {
+          const tradeDate = new Date(trade.open_date_time);
+          const weekday = tradeDate.getUTCDay();
+          return selectedWeekdays.includes(weekday);
+        });
+      }
 
       res.json({ trades, count: trades.length });
     }
@@ -294,14 +303,15 @@ router.get('/tvx_list', (req, res) => {
 });
 
 router.get('/stats', (req, res) => {
-  const { symbol, direction, startDate, endDate, tvx, session, sourceType, status } = req.query;
+  const { symbol, direction, startDate, endDate, tvx, session, sourceType, status, weekdays } = req.query;
 
   let query = `
     SELECT 
-      COUNT(*) as total,
-      COALESCE(SUM(profit_amount), 0) as total_profit,
-      COALESCE(SUM(loss_amount), 0) as total_loss,
-      COALESCE(SUM(commission), 0) as total_commission
+      id,
+      open_date_time,
+      profit_amount,
+      loss_amount,
+      commission
     FROM positions
     WHERE 1=1
   `;
@@ -371,19 +381,41 @@ router.get('/stats', (req, res) => {
     params.push(endDate);
   }
 
-  db.get(query, params, (err, row) => {
+  db.all(query, params, (err, rows) => {
     if (err) {
       console.error('Error fetching stats:', err);
       res.status(500).json({ error: 'Failed to fetch stats' });
     } else {
-      const netProfitLoss = (row.total_profit || 0) - (row.total_loss || 0);
-      const netProfit = netProfitLoss - (row.total_commission || 0);
+      const parseWeekdays = (weekdaysStr) => {
+        if (!weekdaysStr) return [];
+        return weekdaysStr.split(',').map(w => parseInt(w)).filter(w => !isNaN(w));
+      };
+
+      const selectedWeekdays = parseWeekdays(weekdays);
+      
+      let filteredRows = rows;
+      if (selectedWeekdays.length > 0) {
+        filteredRows = rows.filter(row => {
+          const tradeDate = new Date(row.open_date_time);
+          const weekday = tradeDate.getUTCDay();
+          return selectedWeekdays.includes(weekday);
+        });
+      }
+
+      const total = filteredRows.length;
+      const total_profit = filteredRows.reduce((sum, row) => sum + (row.profit_amount || 0), 0);
+      const total_loss = filteredRows.reduce((sum, row) => sum + (row.loss_amount || 0), 0);
+      const total_commission = filteredRows.reduce((sum, row) => sum + (row.commission || 0), 0);
+
+      const netProfitLoss = total_profit - total_loss;
+      const netProfit = netProfitLoss - total_commission;
+
       res.json({
-        total: row.total || 0,
-        total_profit: row.total_profit || 0,
-        total_loss: row.total_loss || 0,
+        total,
+        total_profit,
+        total_loss,
         net_profit_loss: netProfitLoss,
-        total_commission: row.total_commission || 0,
+        total_commission,
         net_profit: netProfit
       });
     }
