@@ -88,12 +88,19 @@ router.get('/history_positions', (req, res) => {
   query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
   params.push(parseInt(limit), parseInt(offset));
 
+  const parseWeekdays = (weekdaysStr) => {
+    if (!weekdaysStr) return [];
+    return weekdaysStr.split(',').map(w => parseInt(w)).filter(w => !isNaN(w));
+  };
+
+  const selectedWeekdays = parseWeekdays(weekdays);
+
   db.all(query, params, (err, rows) => {
     if (err) {
       console.error('Error fetching history trades:', err);
       res.status(500).json({ error: 'Failed to fetch history trades' });
     } else {
-      const trades = rows.map(trade => ({
+      let trades = rows.map(trade => ({
         ...trade,
         direction: trade.position_side === 'LONG' ? 'Long' : 'Short',
         interval: 'N/A',
