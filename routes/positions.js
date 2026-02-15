@@ -79,7 +79,6 @@ router.post('/', (req, res) => {
   }
 
   if (metadata) {
-    console.log('Received metadata:', JSON.stringify(metadata, null, 2));
   }
 
   const insertPromises = positions.map((position) => {
@@ -143,8 +142,6 @@ const handleOpenPosition = async (req, res, sourceType) => {
 
     const finalSourceType = sourceType || null;
 
-    console.log('Received position data:', JSON.stringify(positionData, null, 2));
-    console.log('Order type:', positionData.type, 'closePosition:', positionData.closePosition);
 
     if (!positionData.dateTime || !positionData.positionSide || !positionData.symbol || 
         !positionData.price || !positionData.stopLossPrice || !positionData.takeProfitPrice) {
@@ -236,7 +233,6 @@ const handleOpenPosition = async (req, res, sourceType) => {
         const notionalValue = orderQuantity * orderPrice;
         const MIN_NOTIONAL = 20;
 
-        console.log('Order validation - type:', finalOrderType, 'quantity:', orderQuantity, 'price:', orderPrice, 'notionalValue:', notionalValue, 'reduceOnly:', orderParams.reduceOnly, 'closePosition:', orderParams.closePosition);
 
         if (notionalValue < MIN_NOTIONAL && !orderParams.reduceOnly && !orderParams.closePosition) {
           return res.status(400).json({ 
@@ -251,9 +247,7 @@ const handleOpenPosition = async (req, res, sourceType) => {
           });
         }
 
-        console.log('Placing Binance futures order:', JSON.stringify(orderParams, null, 2));
         binanceOrderResult = await binanceService.placeFuturesOrder(orderParams);
-        console.log('Binance order result:', JSON.stringify(binanceOrderResult, null, 2));
 
         if (!binanceOrderResult || (binanceOrderResult.status !== 'NEW' && binanceOrderResult.status !== 'FILLED' && binanceOrderResult.status !== 'PARTIALLY_FILLED')) {
           throw new Error(`Order not successfully placed. Status: ${binanceOrderResult?.status || 'unknown'}, Response: ${JSON.stringify(binanceOrderResult)}`);
@@ -261,7 +255,6 @@ const handleOpenPosition = async (req, res, sourceType) => {
 
         if (screenshotBuffer) {
           screenshotPath = saveScreenshot(screenshotBuffer);
-          console.log('Screenshot saved after successful order:', screenshotPath);
         }
       } catch (error) {
         console.error('Error placing Binance order:', error);
@@ -283,7 +276,6 @@ const handleOpenPosition = async (req, res, sourceType) => {
     } else {
       if (screenshotBuffer) {
         screenshotPath = saveScreenshot(screenshotBuffer);
-        console.log('Screenshot saved for history position:', screenshotPath);
       }
     }
 
@@ -370,7 +362,6 @@ router.post('/trading/close', upload.single('screenshot'), (req, res) => {
 
     const sourceType = 'trading';
 
-    console.log('Received close position data:', JSON.stringify(closeData, null, 2));
 
     if (!closeData.symbol || !closeData.profitLoss || !closeData.stopLossPrice || !closeData.takeProfitPrice) {
       return res.status(400).json({ error: 'Missing required fields: symbol, profitLoss, stopLossPrice, and takeProfitPrice are required' });
@@ -381,19 +372,13 @@ router.post('/trading/close', upload.single('screenshot'), (req, res) => {
     }
 
     let screenshotPath = null;
-    console.log('=== CHECKING SCREENSHOT (TRADING) ===');
-    console.log('req.file:', req.file ? `EXISTS - size: ${req.file.size}, mimetype: ${req.file.mimetype}, buffer: ${req.file.buffer ? 'present' : 'missing'}` : 'NULL/UNDEFINED');
     
     if (req.file && req.file.buffer) {
       screenshotPath = saveScreenshot(req.file.buffer);
       console.log('✅ Screenshot saved:', screenshotPath, 'Size:', req.file.size, 'bytes');
     } else {
-      console.error('❌ NO SCREENSHOT FILE RECEIVED in close position request for trading');
       if (req.file) {
-        console.error('req.file exists but no buffer. Keys:', Object.keys(req.file));
       }
-      console.error('req.body keys:', Object.keys(req.body));
-      console.error('req.headers content-type:', req.headers['content-type']);
     }
 
     db.get(
@@ -449,7 +434,6 @@ router.post('/trading/close', upload.single('screenshot'), (req, res) => {
               return res.status(500).json({ error: 'Failed to close position', details: updateErr.message });
             }
 
-            console.log('Position closed successfully. Screenshot path:', screenshotPath || 'none');
             res.json({
               success: true,
               message: 'Position closed',
@@ -486,7 +470,6 @@ router.post('/history/close', upload.single('screenshot'), (req, res) => {
 
     const sourceType = 'history';
 
-    console.log('Received close position data:', JSON.stringify(closeData, null, 2));
 
     if (!closeData.symbol || !closeData.profitLoss || !closeData.stopLossPrice || !closeData.takeProfitPrice) {
       return res.status(400).json({ error: 'Missing required fields: symbol, profitLoss, stopLossPrice, and takeProfitPrice are required' });
@@ -497,19 +480,13 @@ router.post('/history/close', upload.single('screenshot'), (req, res) => {
     }
 
     let screenshotPath = null;
-    console.log('=== CHECKING SCREENSHOT (HISTORY) ===');
-    console.log('req.file:', req.file ? `EXISTS - size: ${req.file.size}, mimetype: ${req.file.mimetype}, buffer: ${req.file.buffer ? 'present' : 'missing'}` : 'NULL/UNDEFINED');
     
     if (req.file && req.file.buffer) {
       screenshotPath = saveScreenshot(req.file.buffer);
       console.log('✅ Screenshot saved:', screenshotPath, 'Size:', req.file.size, 'bytes');
     } else {
-      console.error('❌ NO SCREENSHOT FILE RECEIVED in close position request for history');
       if (req.file) {
-        console.error('req.file exists but no buffer. Keys:', Object.keys(req.file));
       }
-      console.error('req.body keys:', Object.keys(req.body));
-      console.error('req.headers content-type:', req.headers['content-type']);
     }
 
     db.get(
@@ -565,7 +542,6 @@ router.post('/history/close', upload.single('screenshot'), (req, res) => {
               return res.status(500).json({ error: 'Failed to close position', details: updateErr.message });
             }
 
-            console.log('Position closed successfully (history). Screenshot path:', screenshotPath || 'none');
             res.json({
               success: true,
               message: 'Position closed',
@@ -743,10 +719,8 @@ const placeCompoundOrder = async (compoundOrderData) => {
       entryOrderParams.timeInForce = entry.timeInForce;
     }
 
-    console.log('Placing entry order:', JSON.stringify(entryOrderParams, null, 2));
     const entryOrder = await binanceService.placeFuturesOrder(entryOrderParams);
     placedOrders.entry = entryOrder;
-    console.log('Entry order placed successfully:', entryOrder.orderId);
 
     try {
       const slOrderParams = {
@@ -758,10 +732,8 @@ const placeCompoundOrder = async (compoundOrderData) => {
         closePosition: true
       };
 
-      console.log('Placing stop loss order:', JSON.stringify(slOrderParams, null, 2));
       const slOrder = await binanceService.placeFuturesOrder(slOrderParams);
       placedOrders.stopLoss = slOrder;
-      console.log('Stop loss order placed successfully:', slOrder.orderId);
 
       return {
         success: true,
@@ -803,7 +775,6 @@ router.post('/trading/open-compound', upload.single('screenshot'), async (req, r
       compoundOrderData = req.body;
     }
 
-    console.log('Received compound order data:', JSON.stringify(compoundOrderData, null, 2));
 
     if (!compoundOrderData.entry || !compoundOrderData.stopLoss) {
       return res.status(400).json({ 
@@ -849,7 +820,6 @@ router.post('/trading/open-compound', upload.single('screenshot'), async (req, r
 
     if (screenshotBuffer) {
       screenshotPath = saveScreenshot(screenshotBuffer);
-      console.log('Screenshot saved:', screenshotPath);
     }
 
     const price = parseFloat(compoundOrderData.price);
@@ -877,7 +847,6 @@ router.post('/trading/open-compound', upload.single('screenshot'), async (req, r
 
     try {
       binanceOrderResult = await placeCompoundOrder(compoundOrderData);
-      console.log('Compound order placed successfully:', JSON.stringify(binanceOrderResult, null, 2));
     } catch (error) {
       console.error('Error placing compound order:', error);
       
