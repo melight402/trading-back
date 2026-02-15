@@ -765,59 +765,15 @@ const placeCompoundOrder = async (compoundOrderData) => {
       placedOrders.stopLoss = slOrder;
       console.log('Stop loss order placed successfully:', slOrder.orderId);
 
-      try {
-        const tpOrderParams = {
-          symbol: takeProfit.symbol,
-          side: takeProfit.side,
-          type: takeProfit.type,
-          quantity: takeProfit.quantity,
-          positionSide: takeProfit.positionSide,
-          stopPrice: takeProfit.stopPrice,
-          workingType: takeProfit.workingType || 'CONTRACT_PRICE',
-          reduceOnly: true
-        };
-
-        console.log('Placing take profit order:', JSON.stringify(tpOrderParams, null, 2));
-        const tpOrder = await binanceService.placeFuturesOrder(tpOrderParams);
-        placedOrders.takeProfit = tpOrder;
-        console.log('Take profit order placed successfully:', tpOrder.orderId);
-
-        return {
-          success: true,
-          orderIds: {
-            entry: entryOrder.orderId,
-            stopLoss: slOrder.orderId,
-            takeProfit: tpOrder.orderId
-          },
-          orders: placedOrders
-        };
-      } catch (tpError) {
-        console.error('Failed to place take profit order:', tpError.message);
-        
-        try {
-          await binanceService.cancelFuturesOrder({
-            symbol: entry.symbol,
-            orderId: entryOrder.orderId
-          });
-          console.log('Entry order cancelled due to take profit failure');
-        } catch (cancelErr) {
-          console.error('Failed to cancel entry order:', cancelErr.message);
-        }
-
-        try {
-          if (placedOrders.stopLoss?.orderId) {
-            await binanceService.cancelFuturesOrder({
-              symbol: stopLoss.symbol,
-              orderId: placedOrders.stopLoss.orderId
-            });
-            console.log('Stop loss order cancelled due to take profit failure');
-          }
-        } catch (cancelErr) {
-          console.error('Failed to cancel stop loss order:', cancelErr.message);
-        }
-
-        throw tpError;
-      }
+      return {
+        success: true,
+        orderIds: {
+          entry: entryOrder.orderId,
+          stopLoss: slOrder.orderId
+        },
+        orders: placedOrders,
+        note: 'Take profit order not placed. Please manually set take profit or add it separately.'
+      };
     } catch (slError) {
       console.error('Failed to place stop loss order:', slError.message);
       
@@ -851,9 +807,9 @@ router.post('/trading/open-compound', upload.single('screenshot'), async (req, r
 
     console.log('Received compound order data:', JSON.stringify(compoundOrderData, null, 2));
 
-    if (!compoundOrderData.entry || !compoundOrderData.stopLoss || !compoundOrderData.takeProfit) {
+    if (!compoundOrderData.entry || !compoundOrderData.stopLoss) {
       return res.status(400).json({ 
-        error: 'Missing required fields: entry, stopLoss, and takeProfit are required' 
+        error: 'Missing required fields: entry and stopLoss are required. takeProfit is optional.' 
       });
     }
 
@@ -871,16 +827,16 @@ router.post('/trading/open-compound', upload.single('screenshot'), async (req, r
       });
     }
 
-    if (!takeProfit.symbol || !takeProfit.side || !takeProfit.type || !takeProfit.quantity || !takeProfit.positionSide || !takeProfit.stopPrice) {
+    if (takeProfit && (!takeProfit.symbol || !takeProfit.side || !takeProfit.type || !takeProfit.quantity || !takeProfit.positionSide || !takeProfit.stopPrice)) {
       return res.status(400).json({ 
         error: 'Missing required takeProfit fields: symbol, side, type, quantity, positionSide, stopPrice' 
       });
     }
 
     if (!compoundOrderData.symbol || !compoundOrderData.positionSide || !compoundOrderData.price || 
-        !compoundOrderData.stopLossPrice || !compoundOrderData.takeProfitPrice) {
+        !compoundOrderData.stopLossPrice) {
       return res.status(400).json({ 
-        error: 'Missing position metadata: symbol, positionSide, price, stopLossPrice, takeProfitPrice' 
+        error: 'Missing position metadata: symbol, positionSide, price, stopLossPrice are required' 
       });
     }
 
@@ -900,7 +856,7 @@ router.post('/trading/open-compound', upload.single('screenshot'), async (req, r
 
     const price = parseFloat(compoundOrderData.price);
     const stopLossPrice = parseFloat(compoundOrderData.stopLossPrice);
-    const takeProfitPrice = parseFloat(compoundOrderData.takeProfitPrice);
+    const takeProfitPrice = compoundOrderData.takeProfitPrice ? parseFloat(compoundOrderData.takeProfitPrice) : null;
     const isLong = compoundOrderData.positionSide === 'LONG';
 
     let risk;
@@ -909,13 +865,13 @@ router.post('/trading/open-compound', upload.single('screenshot'), async (req, r
 
     if (isLong) {
       risk = price - stopLossPrice;
-      reward = takeProfitPrice - price;
+      reward = takeProfitPrice ? takeProfitPrice - price : null;
     } else {
       risk = stopLossPrice - price;
-      reward = price - takeProfitPrice;
+      reward = takeProfitPrice ? price - takeProfitPrice : null;
     }
 
-    if (risk > 0) {
+    if (risk > 0 && reward) {
       riskRewardRatio = reward / risk;
     }
 
@@ -1002,7 +958,7 @@ router.post('/trading/open-compound', upload.single('screenshot'), async (req, r
 
         res.json({
           success: true,
-          message: 'Position opened and all orders (entry, stop loss, take profit) placed on Binance',
+          message: 'Position opened with entry and stop loss orders placed on Binance. Note: Take profit must be set manually or added separately.',
           id: this.lastID,
           data: {
             ...compoundOrderData,
@@ -1012,7 +968,7 @@ router.post('/trading/open-compound', upload.single('screenshot'), async (req, r
           binanceOrders: {
             entry: binanceOrderResult.orders.entry,
             stopLoss: binanceOrderResult.orders.stopLoss,
-            takeProfit: binanceOrderResult.orders.takeProfit
+            takeProfit: binanceOrderResult.orders.takeProfit || null
           }
         });
       }
