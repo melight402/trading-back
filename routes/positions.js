@@ -720,5 +720,311 @@ router.patch('/:id', (req, res) => {
   });
 });
 
+const placeCompoundOrder = async (compoundOrderData) => {
+  const { entry, stopLoss, takeProfit } = compoundOrderData;
+  const placedOrders = {};
+
+  try {
+    console.log('Starting to place compound order...');
+    
+    const entryOrderParams = {
+      symbol: entry.symbol,
+      side: entry.side,
+      type: entry.type,
+      quantity: entry.quantity,
+      positionSide: entry.positionSide
+    };
+
+    if (entry.price) {
+      entryOrderParams.price = entry.price;
+    }
+
+    if (entry.timeInForce) {
+      entryOrderParams.timeInForce = entry.timeInForce;
+    }
+
+    console.log('Placing entry order:', JSON.stringify(entryOrderParams, null, 2));
+    const entryOrder = await binanceService.placeFuturesOrder(entryOrderParams);
+    placedOrders.entry = entryOrder;
+    console.log('Entry order placed successfully:', entryOrder.orderId);
+
+    try {
+      const slOrderParams = {
+        symbol: stopLoss.symbol,
+        side: stopLoss.side,
+        type: stopLoss.type,
+        quantity: stopLoss.quantity,
+        positionSide: stopLoss.positionSide,
+        stopPrice: stopLoss.stopPrice,
+        workingType: stopLoss.workingType || 'CONTRACT_PRICE',
+        closePosition: stopLoss.closePosition
+      };
+
+      console.log('Placing stop loss order:', JSON.stringify(slOrderParams, null, 2));
+      const slOrder = await binanceService.placeFuturesOrder(slOrderParams);
+      placedOrders.stopLoss = slOrder;
+      console.log('Stop loss order placed successfully:', slOrder.orderId);
+
+      try {
+        const tpOrderParams = {
+          symbol: takeProfit.symbol,
+          side: takeProfit.side,
+          type: takeProfit.type,
+          quantity: takeProfit.quantity,
+          positionSide: takeProfit.positionSide,
+          stopPrice: takeProfit.stopPrice,
+          workingType: takeProfit.workingType || 'CONTRACT_PRICE',
+          closePosition: takeProfit.closePosition
+        };
+
+        console.log('Placing take profit order:', JSON.stringify(tpOrderParams, null, 2));
+        const tpOrder = await binanceService.placeFuturesOrder(tpOrderParams);
+        placedOrders.takeProfit = tpOrder;
+        console.log('Take profit order placed successfully:', tpOrder.orderId);
+
+        return {
+          success: true,
+          orderIds: {
+            entry: entryOrder.orderId,
+            stopLoss: slOrder.orderId,
+            takeProfit: tpOrder.orderId
+          },
+          orders: placedOrders
+        };
+      } catch (tpError) {
+        console.error('Failed to place take profit order:', tpError.message);
+        
+        try {
+          await binanceService.cancelFuturesOrder({
+            symbol: entry.symbol,
+            orderId: entryOrder.orderId
+          });
+          console.log('Entry order cancelled due to take profit failure');
+        } catch (cancelErr) {
+          console.error('Failed to cancel entry order:', cancelErr.message);
+        }
+
+        try {
+          if (placedOrders.stopLoss?.orderId) {
+            await binanceService.cancelFuturesOrder({
+              symbol: stopLoss.symbol,
+              orderId: placedOrders.stopLoss.orderId
+            });
+            console.log('Stop loss order cancelled due to take profit failure');
+          }
+        } catch (cancelErr) {
+          console.error('Failed to cancel stop loss order:', cancelErr.message);
+        }
+
+        throw tpError;
+      }
+    } catch (slError) {
+      console.error('Failed to place stop loss order:', slError.message);
+      
+      try {
+        await binanceService.cancelFuturesOrder({
+          symbol: entry.symbol,
+          orderId: entryOrder.orderId
+        });
+        console.log('Entry order cancelled due to stop loss failure');
+      } catch (cancelErr) {
+        console.error('Failed to cancel entry order:', cancelErr.message);
+      }
+
+      throw slError;
+    }
+  } catch (error) {
+    console.error('Error in compound order placement:', error);
+    throw error;
+  }
+};
+
+router.post('/trading/open-compound', upload.single('screenshot'), async (req, res) => {
+  try {
+    let compoundOrderData;
+
+    if (req.body.compoundOrderData) {
+      compoundOrderData = JSON.parse(req.body.compoundOrderData);
+    } else {
+      compoundOrderData = req.body;
+    }
+
+    console.log('Received compound order data:', JSON.stringify(compoundOrderData, null, 2));
+
+    if (!compoundOrderData.entry || !compoundOrderData.stopLoss || !compoundOrderData.takeProfit) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: entry, stopLoss, and takeProfit are required' 
+      });
+    }
+
+    const { entry, stopLoss, takeProfit } = compoundOrderData;
+
+    if (!entry.symbol || !entry.side || !entry.type || !entry.quantity || !entry.positionSide) {
+      return res.status(400).json({ 
+        error: 'Missing required entry fields: symbol, side, type, quantity, positionSide' 
+      });
+    }
+
+    if (!stopLoss.symbol || !stopLoss.side || !stopLoss.type || !stopLoss.quantity || !stopLoss.positionSide || !stopLoss.stopPrice) {
+      return res.status(400).json({ 
+        error: 'Missing required stopLoss fields: symbol, side, type, quantity, positionSide, stopPrice' 
+      });
+    }
+
+    if (!takeProfit.symbol || !takeProfit.side || !takeProfit.type || !takeProfit.quantity || !takeProfit.positionSide || !takeProfit.stopPrice) {
+      return res.status(400).json({ 
+        error: 'Missing required takeProfit fields: symbol, side, type, quantity, positionSide, stopPrice' 
+      });
+    }
+
+    if (!compoundOrderData.symbol || !compoundOrderData.positionSide || !compoundOrderData.price || 
+        !compoundOrderData.stopLossPrice || !compoundOrderData.takeProfitPrice) {
+      return res.status(400).json({ 
+        error: 'Missing position metadata: symbol, positionSide, price, stopLossPrice, takeProfitPrice' 
+      });
+    }
+
+    if (!compoundOrderData.risk || isNaN(parseFloat(compoundOrderData.risk)) || parseFloat(compoundOrderData.risk) <= 0) {
+      return res.status(400).json({ 
+        error: 'Risk must be a positive number greater than zero' 
+      });
+    }
+
+    const screenshotBuffer = req.file ? req.file.buffer : null;
+    let screenshotPath = null;
+
+    if (screenshotBuffer) {
+      screenshotPath = saveScreenshot(screenshotBuffer);
+      console.log('Screenshot saved:', screenshotPath);
+    }
+
+    const price = parseFloat(compoundOrderData.price);
+    const stopLossPrice = parseFloat(compoundOrderData.stopLossPrice);
+    const takeProfitPrice = parseFloat(compoundOrderData.takeProfitPrice);
+    const isLong = compoundOrderData.positionSide === 'LONG';
+
+    let risk;
+    let reward;
+    let riskRewardRatio = null;
+
+    if (isLong) {
+      risk = price - stopLossPrice;
+      reward = takeProfitPrice - price;
+    } else {
+      risk = stopLossPrice - price;
+      reward = price - takeProfitPrice;
+    }
+
+    if (risk > 0) {
+      riskRewardRatio = reward / risk;
+    }
+
+    let binanceOrderResult = null;
+
+    try {
+      binanceOrderResult = await placeCompoundOrder(compoundOrderData);
+      console.log('Compound order placed successfully:', JSON.stringify(binanceOrderResult, null, 2));
+    } catch (error) {
+      console.error('Error placing compound order:', error);
+      
+      if (screenshotPath && fs.existsSync(path.join(screenshotsPath, screenshotPath))) {
+        fs.unlinkSync(path.join(screenshotsPath, screenshotPath));
+        console.log('Screenshot deleted due to order failure');
+      }
+
+      const errorMessage = error.binanceResponse?.msg || error.message || 'Failed to place compound order';
+      const binanceErrorCode = error.binanceResponse?.code;
+      
+      if (binanceErrorCode === -2019 || binanceErrorCode === '-2019') {
+        return res.status(400).json({
+          error: 'Insufficient margin',
+          details: 'Недостаточно маржинальных средств для открытия позиции',
+          binanceError: {
+            code: binanceErrorCode,
+            message: errorMessage
+          }
+        });
+      }
+
+      return res.status(500).json({
+        error: 'Failed to place compound order on Binance',
+        details: errorMessage,
+        binanceError: {
+          code: binanceErrorCode,
+          message: errorMessage
+        }
+      });
+    }
+
+    const quantity = parseFloat(compoundOrderData.quantity);
+    const positionUsdt = compoundOrderData.positionUsdt !== undefined && compoundOrderData.positionUsdt !== null
+      ? parseFloat(compoundOrderData.positionUsdt)
+      : (!isNaN(price) && !isNaN(quantity) && price > 0 && quantity > 0 
+          ? Math.round((price * quantity) * 100) / 100 
+          : null);
+
+    db.run(
+      `INSERT INTO positions (
+        symbol, position_side, price, quantity, stop_loss_price, 
+        take_profit_price, timeframe, tvx, open_date_time, open_screenshot_path, risk_reward_ratio, source_type, line_tool_id, risk_usdt, position_usdt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        compoundOrderData.symbol,
+        compoundOrderData.positionSide,
+        compoundOrderData.price,
+        compoundOrderData.quantity,
+        compoundOrderData.stopLossPrice,
+        compoundOrderData.takeProfitPrice,
+        compoundOrderData.timeframe || null,
+        compoundOrderData.tvx || null,
+        compoundOrderData.dateTime || new Date().toISOString(),
+        screenshotPath,
+        riskRewardRatio,
+        'trading',
+        compoundOrderData.lineToolId || null,
+        parseFloat(compoundOrderData.risk),
+        positionUsdt
+      ],
+      function(err) {
+        if (err) {
+          console.error('Error saving position:', err);
+          
+          if (screenshotPath && fs.existsSync(path.join(screenshotsPath, screenshotPath))) {
+            fs.unlinkSync(path.join(screenshotsPath, screenshotPath));
+          }
+
+          return res.status(500).json({ 
+            error: 'Failed to save position to database',
+            details: err.message,
+            note: 'Orders placed on Binance but not saved in database. Check Binance account.'
+          });
+        }
+
+        res.json({
+          success: true,
+          message: 'Position opened and all orders (entry, stop loss, take profit) placed on Binance',
+          id: this.lastID,
+          data: {
+            ...compoundOrderData,
+            openScreenshotPath: screenshotPath,
+            openScreenshotUrl: screenshotPath ? `/api/screenshots/${screenshotPath}` : null
+          },
+          binanceOrders: {
+            entry: binanceOrderResult.orders.entry,
+            stopLoss: binanceOrderResult.orders.stopLoss,
+            takeProfit: binanceOrderResult.orders.takeProfit
+          }
+        });
+      }
+    );
+  } catch (error) {
+    console.error('Error processing compound order:', error);
+    res.status(500).json({ 
+      error: 'Failed to process compound order', 
+      details: error.message 
+    });
+  }
+});
+
 export default router;
 
