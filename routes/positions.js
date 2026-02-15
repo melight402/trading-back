@@ -753,11 +753,9 @@ const placeCompoundOrder = async (compoundOrderData) => {
         symbol: stopLoss.symbol,
         side: stopLoss.side,
         type: stopLoss.type,
-        quantity: stopLoss.quantity,
-        positionSide: stopLoss.positionSide,
         stopPrice: stopLoss.stopPrice,
         workingType: stopLoss.workingType || 'CONTRACT_PRICE',
-        reduceOnly: true
+        closePosition: true
       };
 
       console.log('Placing stop loss order:', JSON.stringify(slOrderParams, null, 2));

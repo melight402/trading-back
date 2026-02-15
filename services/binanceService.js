@@ -137,20 +137,22 @@ export const placeFuturesOrder = async (orderParams) => {
       type: String(orderParams.type)
     };
 
-    if (orderParams.reduceOnly !== undefined) {
-      params.reduceOnly = orderParams.reduceOnly;
-    }
-
-    if (!params.reduceOnly && orderParams.positionSide) {
-      params.positionSide = String(orderParams.positionSide);
-    }
-
     if (orderParams.closePosition) {
       params.closePosition = true;
-    } else if (orderParams.quantity) {
-      const quantity = parseFloat(orderParams.quantity);
-      const roundedQuantity = binancePrecision.roundQuantity(quantity, symbol);
-      params.quantity = String(roundedQuantity);
+    } else {
+      if (orderParams.positionSide) {
+        params.positionSide = String(orderParams.positionSide);
+      }
+
+      if (orderParams.quantity) {
+        const quantity = parseFloat(orderParams.quantity);
+        const roundedQuantity = binancePrecision.roundQuantity(quantity, symbol);
+        params.quantity = String(roundedQuantity);
+      }
+
+      if (orderParams.reduceOnly !== undefined) {
+        params.reduceOnly = orderParams.reduceOnly;
+      }
     }
 
     if (orderParams.price) {
@@ -167,18 +169,6 @@ export const placeFuturesOrder = async (orderParams) => {
       const stopPrice = parseFloat(orderParams.stopPrice);
       const roundedStopPrice = binancePrecision.roundPrice(stopPrice, symbol);
       params.stopPrice = String(roundedStopPrice);
-    }
-
-    if (orderParams.reduceOnly !== undefined) {
-      params.reduceOnly = orderParams.reduceOnly;
-    }
-
-    if (orderParams.closePosition !== undefined && !params.reduceOnly) {
-      params.closePosition = orderParams.closePosition;
-    }
-    
-    if ((params.type === 'TAKE_PROFIT_MARKET' || params.type === 'STOP_MARKET') && !params.reduceOnly && orderParams.closePosition) {
-      params.reduceOnly = true;
     }
 
     if (orderParams.workingType) {
