@@ -757,7 +757,8 @@ const placeCompoundOrder = async (compoundOrderData) => {
         positionSide: stopLoss.positionSide,
         stopPrice: stopLoss.stopPrice,
         workingType: stopLoss.workingType || 'CONTRACT_PRICE',
-        closePosition: stopLoss.closePosition
+        closePosition: stopLoss.closePosition,
+        reduceOnly: true
       };
 
       console.log('Placing stop loss order:', JSON.stringify(slOrderParams, null, 2));
@@ -774,7 +775,8 @@ const placeCompoundOrder = async (compoundOrderData) => {
           positionSide: takeProfit.positionSide,
           stopPrice: takeProfit.stopPrice,
           workingType: takeProfit.workingType || 'CONTRACT_PRICE',
-          closePosition: takeProfit.closePosition
+          closePosition: takeProfit.closePosition,
+          reduceOnly: true
         };
 
         console.log('Placing take profit order:', JSON.stringify(tpOrderParams, null, 2));
