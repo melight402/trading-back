@@ -819,15 +819,15 @@ router.post('/trading/open-compound', upload.single('screenshot'), async (req, r
       });
     }
 
-    if (!stopLoss.symbol || !stopLoss.side || !stopLoss.type || !stopLoss.quantity || !stopLoss.positionSide || !stopLoss.stopPrice) {
+    if (!stopLoss.symbol || !stopLoss.side || !stopLoss.type || !stopLoss.stopPrice) {
       return res.status(400).json({ 
-        error: 'Missing required stopLoss fields: symbol, side, type, quantity, positionSide, stopPrice' 
+        error: 'Missing required stopLoss fields: symbol, side, type, stopPrice' 
       });
     }
 
-    if (takeProfit && (!takeProfit.symbol || !takeProfit.side || !takeProfit.type || !takeProfit.quantity || !takeProfit.positionSide || !takeProfit.stopPrice)) {
+    if (takeProfit && (!takeProfit.symbol || !takeProfit.side || !takeProfit.type || !takeProfit.stopPrice)) {
       return res.status(400).json({ 
-        error: 'Missing required takeProfit fields: symbol, side, type, quantity, positionSide, stopPrice' 
+        error: 'Missing required takeProfit fields: symbol, side, type, stopPrice' 
       });
     }
 
