@@ -134,9 +134,16 @@ export const placeFuturesOrder = async (orderParams) => {
     const params = {
       symbol: symbol,
       side: String(orderParams.side),
-      type: String(orderParams.type),
-      positionSide: String(orderParams.positionSide)
+      type: String(orderParams.type)
     };
+
+    if (orderParams.reduceOnly !== undefined) {
+      params.reduceOnly = orderParams.reduceOnly;
+    }
+
+    if (!params.reduceOnly && orderParams.positionSide) {
+      params.positionSide = String(orderParams.positionSide);
+    }
 
     if (orderParams.closePosition) {
       params.closePosition = true;
@@ -162,12 +169,12 @@ export const placeFuturesOrder = async (orderParams) => {
       params.stopPrice = String(roundedStopPrice);
     }
 
-    if (orderParams.closePosition !== undefined) {
-      params.closePosition = orderParams.closePosition;
-    }
-
     if (orderParams.reduceOnly !== undefined) {
       params.reduceOnly = orderParams.reduceOnly;
+    }
+
+    if (orderParams.closePosition !== undefined && !params.reduceOnly) {
+      params.closePosition = orderParams.closePosition;
     }
     
     if ((params.type === 'TAKE_PROFIT_MARKET' || params.type === 'STOP_MARKET') && !params.reduceOnly && orderParams.closePosition) {
