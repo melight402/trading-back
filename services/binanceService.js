@@ -134,16 +134,25 @@ export const placeFuturesOrder = async (orderParams) => {
     const params = {
       symbol: symbol,
       side: String(orderParams.side),
-      type: String(orderParams.type),
-      positionSide: String(orderParams.positionSide)
+      type: String(orderParams.type)
     };
 
     if (orderParams.closePosition) {
       params.closePosition = true;
-    } else if (orderParams.quantity) {
-      const quantity = parseFloat(orderParams.quantity);
-      const roundedQuantity = binancePrecision.roundQuantity(quantity, symbol);
-      params.quantity = String(roundedQuantity);
+    } else {
+      if (orderParams.positionSide) {
+        params.positionSide = String(orderParams.positionSide);
+      }
+
+      if (orderParams.quantity) {
+        const quantity = parseFloat(orderParams.quantity);
+        const roundedQuantity = binancePrecision.roundQuantity(quantity, symbol);
+        params.quantity = String(roundedQuantity);
+      }
+
+      if (orderParams.reduceOnly !== undefined) {
+        params.reduceOnly = orderParams.reduceOnly;
+      }
     }
 
     if (orderParams.price) {
@@ -160,18 +169,6 @@ export const placeFuturesOrder = async (orderParams) => {
       const stopPrice = parseFloat(orderParams.stopPrice);
       const roundedStopPrice = binancePrecision.roundPrice(stopPrice, symbol);
       params.stopPrice = String(roundedStopPrice);
-    }
-
-    if (orderParams.closePosition !== undefined) {
-      params.closePosition = orderParams.closePosition;
-    }
-
-    if (orderParams.reduceOnly !== undefined && params.type !== 'TAKE_PROFIT' && params.type !== 'TAKE_PROFIT_MARKET' && params.type !== 'STOP_MARKET') {
-      params.reduceOnly = orderParams.reduceOnly;
-    }
-    
-    if ((params.type === 'TAKE_PROFIT_MARKET' || params.type === 'STOP_MARKET') && orderParams.reduceOnly === undefined && orderParams.closePosition) {
-      params.reduceOnly = true;
     }
 
     if (orderParams.workingType) {
@@ -257,6 +254,93 @@ export const placeFuturesOrder = async (orderParams) => {
     }
 
     console.log('Binance order result:', JSON.stringify(data, null, 2));
+    return data;
+  } catch (error) {
+    const enhancedError = new Error(error.message || error.toString());
+    enhancedError.details = error;
+    throw enhancedError;
+  }
+};
+
+export const cancelFuturesOrder = async (cancelParams) => {
+  try {
+    const credentials = getCredentials();
+    
+    if (credentials.apiKey.length < 20) {
+      throw new Error(`Invalid API key format. API key length is ${credentials.apiKey.length}, expected ~64 characters.`);
+    }
+    
+    const symbol = String(cancelParams.symbol);
+    const orderId = cancelParams.orderId || cancelParams.origClientOrderId;
+    
+    if (!orderId) {
+      throw new Error('Either orderId or origClientOrderId must be provided');
+    }
+
+    const params = {
+      symbol: symbol,
+      timestamp: Date.now(),
+      recvWindow: 60000
+    };
+
+    if (!isNaN(parseInt(orderId))) {
+      params.orderId = String(orderId);
+    } else {
+      params.origClientOrderId = String(orderId);
+    }
+
+    const sortedKeys = Object.keys(params).sort();
+    const queryParts = [];
+    
+    for (const key of sortedKeys) {
+      const value = params[key];
+      let paramValue;
+      
+      if (value === null || value === undefined) {
+        continue;
+      }
+      
+      if (typeof value === 'boolean') {
+        paramValue = value.toString();
+      } else if (typeof value === 'number') {
+        paramValue = value.toString();
+      } else {
+        paramValue = String(value);
+      }
+      
+      queryParts.push(`${key}=${paramValue}`);
+    }
+    
+    const queryString = queryParts.join('&');
+
+    const signature = crypto
+      .createHmac('sha256', credentials.secretKey)
+      .update(queryString)
+      .digest('hex');
+
+    const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
+
+    console.log('Cancelling Binance futures order:', JSON.stringify(params, null, 2));
+
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'X-MBX-APIKEY': credentials.apiKey
+      }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      const errorMsg = data.msg || data.message || `HTTP ${response.status}: ${JSON.stringify(data)}`;
+      console.error('Binance cancel API error:', errorMsg);
+      const error = new Error(errorMsg);
+      error.code = data.code;
+      error.binanceResponse = data;
+      throw error;
+    }
+
+    console.log('Binance cancel order result:', JSON.stringify(data, null, 2));
     return data;
   } catch (error) {
     const enhancedError = new Error(error.message || error.toString());
