@@ -659,40 +659,96 @@ router.get('/', (req, res) => {
 
 router.patch('/:id', (req, res) => {
   const { id } = req.params;
-  const { tvx, note } = req.body;
+  const { tvx, note, profit_loss } = req.body;
 
-  if (tvx === undefined && note === undefined) {
+  if (tvx === undefined && note === undefined && profit_loss === undefined) {
     return res.status(400).json({ error: 'No updatable fields provided' });
   }
 
-  const fields = [];
-  const params = [];
-
-  if (tvx !== undefined) {
-    fields.push('tvx = ?');
-    params.push(tvx || null);
+  if (profit_loss !== undefined && profit_loss !== 'profit' && profit_loss !== 'loss') {
+    return res.status(400).json({ error: 'profit_loss must be "profit" or "loss"' });
   }
 
-  if (note !== undefined) {
-    fields.push('note = ?');
-    params.push(note || null);
-  }
+  const applyUpdate = (extraFields = {}, extraValues = []) => {
+    const fields = [];
+    const params = [];
 
-  params.push(id);
-
-  const sql = `UPDATE positions SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
-
-  db.run(sql, params, function(err) {
-    if (err) {
-      console.error('Error updating position:', err);
-      return res.status(500).json({ error: 'Failed to update position', details: err.message });
+    if (tvx !== undefined) {
+      fields.push('tvx = ?');
+      params.push(tvx || null);
     }
 
-    if (this.changes === 0) {
+    if (note !== undefined) {
+      fields.push('note = ?');
+      params.push(note || null);
+    }
+
+    fields.push(...extraFields);
+    params.push(...extraValues);
+    params.push(id);
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
+
+    const sql = `UPDATE positions SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
+
+    db.run(sql, params, function(err) {
+      if (err) {
+        console.error('Error updating position:', err);
+        return res.status(500).json({ error: 'Failed to update position', details: err.message });
+      }
+
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Position not found' });
+      }
+
+      const updated = { tvx, note };
+      if (profit_loss !== undefined) {
+        updated.profit_loss = extraValues[0];
+        updated.profit_amount = extraValues[1];
+        updated.loss_amount = extraValues[2];
+      }
+
+      res.json({ success: true, id, updated });
+    });
+  };
+
+  if (profit_loss === undefined) {
+    applyUpdate();
+    return;
+  }
+
+  db.get('SELECT * FROM positions WHERE id = ?', [id], (err, position) => {
+    if (err) {
+      console.error('Error fetching position for profit/loss update:', err);
+      return res.status(500).json({ error: 'Failed to fetch position', details: err.message });
+    }
+
+    if (!position) {
       return res.status(404).json({ error: 'Position not found' });
     }
 
-    res.json({ success: true, id, updated: { tvx, note } });
+    const { profitAmount, lossAmount } = calculateClosePositionData(
+      position.price,
+      position.quantity,
+      position.position_side,
+      position.stop_loss_price,
+      position.take_profit_price,
+      profit_loss
+    );
+
+    let finalProfitAmount = profitAmount;
+    let finalLossAmount = lossAmount;
+
+    if (profit_loss === 'loss' && position.risk_usdt != null && !Number.isNaN(parseFloat(position.risk_usdt))) {
+      finalLossAmount = Math.round(parseFloat(position.risk_usdt) * 100) / 100;
+    }
+
+    applyUpdate(
+      ['profit_loss = ?', 'profit_amount = ?', 'loss_amount = ?'],
+      [profit_loss, finalProfitAmount, finalLossAmount]
+    );
   });
 });
 
