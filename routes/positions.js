@@ -665,11 +665,11 @@ router.patch('/:id', (req, res) => {
     return res.status(400).json({ error: 'No updatable fields provided' });
   }
 
-  if (profit_loss !== undefined && profit_loss !== 'profit' && profit_loss !== 'loss') {
-    return res.status(400).json({ error: 'profit_loss must be "profit" or "loss"' });
+  if (profit_loss !== undefined && !['profit', 'loss', 'breakeven'].includes(profit_loss)) {
+    return res.status(400).json({ error: 'profit_loss must be "profit", "loss" or "breakeven"' });
   }
 
-  const applyUpdate = (extraFields = {}, extraValues = []) => {
+  const applyUpdate = (extraFields = [], extraValues = []) => {
     const fields = [];
     const params = [];
 
@@ -729,17 +729,22 @@ router.patch('/:id', (req, res) => {
       return res.status(404).json({ error: 'Position not found' });
     }
 
-    const { profitAmount, lossAmount } = calculateClosePositionData(
-      position.price,
-      position.quantity,
-      position.position_side,
-      position.stop_loss_price,
-      position.take_profit_price,
-      profit_loss
-    );
+    let finalProfitAmount = 0;
+    let finalLossAmount = 0;
 
-    let finalProfitAmount = profitAmount;
-    let finalLossAmount = lossAmount;
+    if (profit_loss !== 'breakeven') {
+      const { profitAmount, lossAmount } = calculateClosePositionData(
+        position.price,
+        position.quantity,
+        position.position_side,
+        position.stop_loss_price,
+        position.take_profit_price,
+        profit_loss
+      );
+
+      finalProfitAmount = profitAmount;
+      finalLossAmount = lossAmount;
+    }
 
     if (profit_loss === 'loss' && position.risk_usdt != null && !Number.isNaN(parseFloat(position.risk_usdt))) {
       finalLossAmount = Math.round(parseFloat(position.risk_usdt) * 100) / 100;

@@ -16,6 +16,7 @@ router.get('/history_positions', (req, res) => {
     session,
     sourceType,
     status,
+    profitLoss,
     weekdays,
     limit = 100,
     offset = 0
@@ -57,6 +58,13 @@ router.get('/history_positions', (req, res) => {
       query += ' AND close_date_time IS NULL';
     } else if (status === 'closed') {
       query += ' AND close_date_time IS NOT NULL';
+    }
+  }
+
+  if (profitLoss && profitLoss !== 'all') {
+    if (['profit', 'loss', 'breakeven'].includes(profitLoss)) {
+      query += ' AND profit_loss = ?';
+      params.push(profitLoss);
     }
   }
 
@@ -310,7 +318,7 @@ router.get('/tvx_list', (req, res) => {
 });
 
 router.get('/stats', (req, res) => {
-  const { symbol, direction, startDate, endDate, tvx, session, sourceType, status, weekdays } = req.query;
+  const { symbol, direction, startDate, endDate, tvx, session, sourceType, status, profitLoss, weekdays } = req.query;
 
   let query = `
     SELECT 
@@ -333,6 +341,13 @@ router.get('/stats', (req, res) => {
     }
   } else {
     query += ' AND close_date_time IS NOT NULL';
+  }
+
+  if (profitLoss && profitLoss !== 'all') {
+    if (['profit', 'loss', 'breakeven'].includes(profitLoss)) {
+      query += ' AND profit_loss = ?';
+      params.push(profitLoss);
+    }
   }
 
   if (symbol) {
