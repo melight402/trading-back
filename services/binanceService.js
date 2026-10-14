@@ -1,148 +1,103 @@
-import Binance from 'node-binance-api';
 import crypto from 'crypto';
+import fs from 'fs';
 import * as binancePrecision from '../utils/binancePrecision.js';
-
-let binanceClient = null;
 
 const getCredentials = () => {
   const rawApiKey = process.env.BINANCE_API_KEY;
-  const rawSecretKey = process.env.BINANCE_SECRET_KEY;
-  
-  console.log('Raw API Key from env:', rawApiKey ? `Length: ${rawApiKey.length}, First 20: ${rawApiKey.substring(0, 20)}...` : 'NOT SET');
-  console.log('Raw Secret Key from env:', rawSecretKey ? `Length: ${rawSecretKey.length}, First 20: ${rawSecretKey.substring(0, 20)}...` : 'NOT SET');
-  
+  const privateKeyPath = process.env.BINANCE_PRIVATE_KEY_PATH;
+  const passphrase = process.env.BINANCE_PRIVATE_KEY_PASSPHRASE;
   const apiKey = rawApiKey ? rawApiKey.trim().replace(/^["']|["']$/g, '') : null;
-  const secretKey = rawSecretKey ? rawSecretKey.trim().replace(/^["']|["']$/g, '') : null;
-  
-  if (!apiKey || !secretKey) {
-    throw new Error('Binance credentials not found in .env. Please set BINANCE_API_KEY and BINANCE_SECRET_KEY');
+
+  if (!apiKey || !privateKeyPath || !passphrase) {
+    throw new Error('Binance credentials not found. Set BINANCE_API_KEY, BINANCE_PRIVATE_KEY_PATH and BINANCE_PRIVATE_KEY_PASSPHRASE in .env');
   }
-  
-  console.log('Processed API Key length:', apiKey.length);
-  console.log('Processed Secret Key length:', secretKey.length);
-  
-  if (apiKey.length < 20) {
-    console.error(`ERROR: API key length is ${apiKey.length}, expected ~64 characters.`);
-    console.error('API Key value (first 30 chars):', apiKey.substring(0, 30));
-    console.error('Please check your .env file format. It should be:');
-    console.error('BINANCE_API_KEY=your_full_key_without_quotes');
-    console.error('BINANCE_SECRET_KEY=your_full_secret_without_quotes');
-    throw new Error(`Invalid API key format. API key length is ${apiKey.length}, expected ~64 characters. Please check your .env file and ensure BINANCE_API_KEY contains the full key without quotes or spaces.`);
-  }
-  
+
   return {
-    apiKey: apiKey,
-    secretKey: secretKey
+    apiKey,
+    privateKey: crypto.createPrivateKey({
+      key: fs.readFileSync(privateKeyPath),
+      format: 'pem',
+      passphrase
+    })
   };
 };
 
-const getBinanceClient = () => {
-  if (binanceClient) {
-    return binanceClient;
+const requestJson = async (url, options = {}) => {
+  const response = await fetch(url, options);
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error = new Error(data.msg || data.message || `HTTP ${response.status}: ${JSON.stringify(data)}`);
+    error.code = data.code;
+    error.binanceResponse = data;
+    throw error;
   }
 
-  try {
-    const credentials = getCredentials();
-    binanceClient = new Binance({
-      APIKEY: credentials.apiKey,
-      APISECRET: credentials.secretKey
-    });
-    return binanceClient;
-  } catch (error) {
-    throw new Error(`Failed to initialize Binance client: ${error.message}`);
-  }
+  return data;
+};
+
+const signedRequest = async (baseUrl, path, method, params) => {
+  const credentials = getCredentials();
+  const queryString = new URLSearchParams(
+    Object.entries({ ...params, timestamp: params.timestamp || Date.now(), recvWindow: params.recvWindow || 60000 })
+  ).toString();
+  const signature = crypto
+    .sign(null, Buffer.from(queryString), credentials.privateKey)
+    .toString('base64');
+  const url = `${baseUrl}${path}?${queryString}&signature=${encodeURIComponent(signature)}`;
+
+  return requestJson(url, {
+    method,
+    headers: { 'X-MBX-APIKEY': credentials.apiKey }
+  });
+};
+
+export const getFuturesPositionMode = async () => {
+  const data = await signedRequest('https://fapi.binance.com', '/fapi/v1/positionSide/dual', 'GET', {});
+  return data.dualSidePosition ? 'HEDGE' : 'ONE_WAY';
 };
 
 export const getAccountInfo = async () => {
-  try {
-    const client = getBinanceClient();
-    return new Promise((resolve, reject) => {
-      client.account((error, data) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(data);
-        }
-      });
-    });
-  } catch (error) {
-    throw error;
-  }
+  return signedRequest('https://api.binance.com', '/api/v3/account', 'GET', {});
 };
 
 export const getExchangeInfo = async () => {
-  try {
-    const client = getBinanceClient();
-    return new Promise((resolve, reject) => {
-      client.exchangeInfo((error, data) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(data);
-        }
-      });
-    });
-  } catch (error) {
-    throw error;
-  }
+  return requestJson('https://api.binance.com/api/v3/exchangeInfo');
 };
 
 export const getPrice = async (symbol) => {
-  try {
-    const client = getBinanceClient();
-    return new Promise((resolve, reject) => {
-      client.prices(symbol, (error, data) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(data[symbol]);
-        }
-      });
-    });
-  } catch (error) {
-    throw error;
-  }
+  const data = await requestJson(`https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(symbol)}`);
+  return data.price;
 };
 
 export const placeOrder = async (orderParams) => {
-  try {
-    const client = getBinanceClient();
-    return new Promise((resolve, reject) => {
-      client.order(orderParams, (error, response) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(response);
-        }
-      });
-    });
-  } catch (error) {
-    throw error;
-  }
+  return signedRequest('https://api.binance.com', '/api/v3/order', 'POST', orderParams);
 };
 
 export const placeFuturesOrder = async (orderParams) => {
   try {
-    const credentials = getCredentials();
-    
-    if (credentials.apiKey.length < 20) {
-      throw new Error(`Invalid API key format. API key length is ${credentials.apiKey.length}, expected ~64 characters. Please check your .env file and ensure BINANCE_API_KEY contains the full key without quotes or spaces.`);
-    }
-    
     const symbol = String(orderParams.symbol);
+    const orderType = String(orderParams.type);
+    const isAlgoOrder = ['STOP', 'STOP_MARKET', 'TAKE_PROFIT', 'TAKE_PROFIT_MARKET', 'TRAILING_STOP_MARKET'].includes(orderType);
+    const positionMode = orderParams.positionSide ? await getFuturesPositionMode() : null;
     
     const params = {
       symbol: symbol,
       side: String(orderParams.side),
-      type: String(orderParams.type)
+      type: orderType
     };
+
+    if (isAlgoOrder) {
+      params.algoType = 'CONDITIONAL';
+    }
+
+    if (orderParams.positionSide && positionMode === 'HEDGE') {
+      params.positionSide = String(orderParams.positionSide);
+    }
 
     if (orderParams.closePosition) {
       params.closePosition = true;
     } else {
-      if (orderParams.positionSide) {
-        params.positionSide = String(orderParams.positionSide);
-      }
 
       if (orderParams.quantity) {
         const quantity = parseFloat(orderParams.quantity);
@@ -161,25 +116,32 @@ export const placeFuturesOrder = async (orderParams) => {
       params.price = String(roundedPrice);
     }
 
-    if (orderParams.timeInForce) {
+    if (orderParams.timeInForce && !isAlgoOrder) {
       params.timeInForce = String(orderParams.timeInForce);
     }
 
-    if (orderParams.stopPrice) {
+    if (orderParams.stopPrice && !isAlgoOrder) {
       const stopPrice = parseFloat(orderParams.stopPrice);
       const roundedStopPrice = binancePrecision.roundPrice(stopPrice, symbol);
       params.stopPrice = String(roundedStopPrice);
+    }
+
+    if (orderParams.stopPrice && isAlgoOrder) {
+      const triggerPrice = parseFloat(orderParams.stopPrice);
+      params.triggerPrice = String(binancePrecision.roundPrice(triggerPrice, symbol));
     }
 
     if (orderParams.workingType) {
       params.workingType = String(orderParams.workingType);
     }
 
-    if (!params.timeInForce && (params.type === 'LIMIT' || params.type === 'STOP' || params.type === 'TAKE_PROFIT')) {
+    if (!isAlgoOrder && !params.timeInForce && (params.type === 'LIMIT' || params.type === 'STOP' || params.type === 'TAKE_PROFIT')) {
       params.timeInForce = 'GTX';
     }
 
-    if (!params.newClientOrderId) {
+    if (isAlgoOrder) {
+      params.clientAlgoId = orderParams.clientAlgoId || `algo-${Date.now()}`;
+    } else if (!params.newClientOrderId) {
       params.newClientOrderId = `x-${Date.now()}`;
     }
 
@@ -187,76 +149,17 @@ export const placeFuturesOrder = async (orderParams) => {
     params.timestamp = timestamp;
     params.recvWindow = 60000;
 
-    const sortedKeys = Object.keys(params).sort();
-    const queryParts = [];
-    
-    for (const key of sortedKeys) {
-      const value = params[key];
-      let paramValue;
-      
-      if (value === null || value === undefined) {
-        continue;
-      }
-      
-      if (typeof value === 'boolean') {
-        paramValue = value.toString();
-      } else if (typeof value === 'number') {
-        paramValue = value.toString();
-      } else {
-        paramValue = String(value);
-      }
-      
-      queryParts.push(`${key}=${paramValue}`);
-    }
-    
-    const queryString = queryParts.join('&');
-
-    console.log('Query string for signature:', queryString);
-    console.log('Secret Key length:', credentials.secretKey.length);
-    
-    if (credentials.secretKey.length < 30) {
-      console.error('ERROR: Secret key is too short! Expected ~64 characters.');
-      throw new Error(`Invalid secret key format. Secret key length is ${credentials.secretKey.length}, expected ~64 characters. Please check your .env file and ensure BINANCE_SECRET_KEY contains the full secret key without quotes or spaces.`);
-    }
-
-    const signature = crypto
-      .createHmac('sha256', credentials.secretKey)
-      .update(queryString)
-      .digest('hex');
-
-    console.log('Computed signature (first 20 chars):', signature.substring(0, 20) + '...');
-
-    const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
-
     console.log('Placing direct Binance futures order:', JSON.stringify(params, null, 2));
-    console.log('Query string (without signature):', queryString);
-    console.log('API Key length:', credentials.apiKey.length);
-    console.log('Secret Key length:', credentials.secretKey.length);
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'X-MBX-APIKEY': credentials.apiKey
-      }
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      const errorMsg = data.msg || data.message || `HTTP ${response.status}: ${JSON.stringify(data)}`;
-      console.error('Binance API error:', errorMsg);
-      console.error('Response data:', JSON.stringify(data, null, 2));
-      console.error('Request URL (without signature):', url.replace(/signature=[^&]+/, 'signature=***'));
-      const error = new Error(errorMsg);
-      error.code = data.code;
-      error.binanceResponse = data;
-      throw error;
-    }
-
-    console.log('Binance order result:', JSON.stringify(data, null, 2));
-    return data;
+    return await signedRequest(
+      'https://fapi.binance.com',
+      isAlgoOrder ? '/fapi/v1/algoOrder' : '/fapi/v1/order',
+      'POST',
+      params
+    );
   } catch (error) {
     const enhancedError = new Error(error.message || error.toString());
+    enhancedError.code = error.code;
+    enhancedError.binanceResponse = error.binanceResponse;
     enhancedError.details = error;
     throw enhancedError;
   }
@@ -264,17 +167,12 @@ export const placeFuturesOrder = async (orderParams) => {
 
 export const cancelFuturesOrder = async (cancelParams) => {
   try {
-    const credentials = getCredentials();
-    
-    if (credentials.apiKey.length < 20) {
-      throw new Error(`Invalid API key format. API key length is ${credentials.apiKey.length}, expected ~64 characters.`);
-    }
-    
     const symbol = String(cancelParams.symbol);
+    const algoId = cancelParams.algoId;
     const orderId = cancelParams.orderId || cancelParams.origClientOrderId;
     
-    if (!orderId) {
-      throw new Error('Either orderId or origClientOrderId must be provided');
+    if (!algoId && !orderId) {
+      throw new Error('Either algoId, orderId or origClientOrderId must be provided');
     }
 
     const params = {
@@ -283,70 +181,37 @@ export const cancelFuturesOrder = async (cancelParams) => {
       recvWindow: 60000
     };
 
-    if (!isNaN(parseInt(orderId))) {
+    if (algoId) {
+      params.algoId = String(algoId);
+    } else if (!isNaN(parseInt(orderId))) {
       params.orderId = String(orderId);
     } else {
       params.origClientOrderId = String(orderId);
     }
 
-    const sortedKeys = Object.keys(params).sort();
-    const queryParts = [];
-    
-    for (const key of sortedKeys) {
-      const value = params[key];
-      let paramValue;
-      
-      if (value === null || value === undefined) {
-        continue;
-      }
-      
-      if (typeof value === 'boolean') {
-        paramValue = value.toString();
-      } else if (typeof value === 'number') {
-        paramValue = value.toString();
-      } else {
-        paramValue = String(value);
-      }
-      
-      queryParts.push(`${key}=${paramValue}`);
-    }
-    
-    const queryString = queryParts.join('&');
-
-    const signature = crypto
-      .createHmac('sha256', credentials.secretKey)
-      .update(queryString)
-      .digest('hex');
-
-    const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
-
     console.log('Cancelling Binance futures order:', JSON.stringify(params, null, 2));
-
-    const response = await fetch(url, {
-      method: 'DELETE',
-      headers: {
-        'X-MBX-APIKEY': credentials.apiKey
-      }
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      const errorMsg = data.msg || data.message || `HTTP ${response.status}: ${JSON.stringify(data)}`;
-      console.error('Binance cancel API error:', errorMsg);
-      const error = new Error(errorMsg);
-      error.code = data.code;
-      error.binanceResponse = data;
-      throw error;
-    }
-
-    console.log('Binance cancel order result:', JSON.stringify(data, null, 2));
-    return data;
+    return await signedRequest(
+      'https://fapi.binance.com',
+      algoId ? '/fapi/v1/algoOrder' : '/fapi/v1/order',
+      'DELETE',
+      params
+    );
   } catch (error) {
     const enhancedError = new Error(error.message || error.toString());
+    enhancedError.code = error.code;
+    enhancedError.binanceResponse = error.binanceResponse;
     enhancedError.details = error;
     throw enhancedError;
   }
+};
+
+export const cancelAllFuturesOrders = async ({ symbol }) => {
+  const params = { symbol: String(symbol), timestamp: Date.now(), recvWindow: 60000 };
+  const [regularOrders, algoOrders] = await Promise.all([
+    signedRequest('https://fapi.binance.com', '/fapi/v1/allOpenOrders', 'DELETE', params),
+    signedRequest('https://fapi.binance.com', '/fapi/v1/algoOpenOrders', 'DELETE', params)
+  ]);
+  return { regularOrders, algoOrders };
 };
 
 export const testConnection = async () => {

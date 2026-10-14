@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import crypto from 'crypto';
 import { db } from '../db/database.js';
 import * as binanceService from '../services/binanceService.js';
 
@@ -22,6 +23,31 @@ const saveScreenshot = (buffer) => {
   return filename;
 };
 
+const saveScreenshotDataUrl = (dataUrl) => {
+  if (!dataUrl) return null;
+
+  const match = String(dataUrl).match(/^data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) {
+    throw new Error('Некорректный формат скриншота');
+  }
+
+  const buffer = Buffer.from(match[2], 'base64');
+  if (buffer.length > 10 * 1024 * 1024) {
+    throw new Error('Размер скриншота превышает 10 МБ');
+  }
+
+  const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
+  const existingFilename = fs.readdirSync(screenshotsPath).find((filename) => {
+    const existingPath = path.join(screenshotsPath, filename);
+    return fs.statSync(existingPath).isFile()
+      && crypto.createHash('sha256').update(fs.readFileSync(existingPath)).digest('hex') === checksum;
+  });
+
+  if (existingFilename) return existingFilename;
+
+  return saveScreenshot(buffer);
+};
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -35,6 +61,120 @@ const upload = multer({
 });
 
 const router = express.Router();
+
+const toNullableNumber = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(String(value).replace(',', '.'));
+  return Number.isFinite(number) ? number : null;
+};
+
+router.post('/import', async (req, res) => {
+  const { trades } = req.body;
+  if (!Array.isArray(trades) || trades.length === 0) {
+    return res.status(400).json({ error: 'CSV не содержит сделок' });
+  }
+
+  const insertQuery = `
+    INSERT INTO positions (
+      symbol, position_side, price, quantity, stop_loss_price, take_profit_price,
+      tvx, open_date_time, close_date_time, profit_loss, purchase_volume, commission,
+      profit_amount, loss_amount, risk_usdt, position_usdt, note, timeframe, source_type,
+      open_screenshot_path, close_screenshot_path
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+  const dbRun = (query, params = []) => new Promise((resolve, reject) => {
+    db.run(query, params, function(error) {
+      if (error) reject(error);
+      else resolve(this);
+    });
+  });
+  const dbGet = (query, params = []) => new Promise((resolve, reject) => {
+    db.get(query, params, (error, row) => {
+      if (error) reject(error);
+      else resolve(row);
+    });
+  });
+
+  const imported = [];
+  const skipped = [];
+
+  try {
+    await dbRun('BEGIN TRANSACTION');
+    for (const trade of trades) {
+      const price = toNullableNumber(trade.entryPrice);
+      const positionUsdt = toNullableNumber(trade.positionUsdt) ?? toNullableNumber(trade.purchaseVolume);
+      const quantity = positionUsdt !== null && price ? positionUsdt / price : null;
+      const positionSide = String(trade.direction || '').toLowerCase() === 'short' ? 'SHORT' : 'LONG';
+
+      if (!trade.symbol || price === null || quantity === null) {
+        throw new Error(`строка ${trade.rowNumber}: нужны символ, цена входа и позиция/объем`);
+      }
+
+      const closeDateTime = trade.closeDateTime || null;
+      const existing = await dbGet(`
+        SELECT id FROM positions
+        WHERE (id = ? AND ? <> '')
+           OR (symbol = ? AND position_side = ? AND price = ? AND open_date_time = ?
+               AND (close_date_time = ? OR (close_date_time IS NULL AND ? IS NULL)))
+        LIMIT 1
+      `, [
+        Number.parseInt(trade.id, 10) || null,
+        trade.id || '',
+        trade.symbol,
+        positionSide,
+        price,
+        trade.openDateTime || '',
+        closeDateTime,
+        closeDateTime
+      ]);
+
+      if (existing) {
+        skipped.push(trade.symbol);
+        continue;
+      }
+
+      let openScreenshotPath;
+      let closeScreenshotPath;
+      try {
+        openScreenshotPath = saveScreenshotDataUrl(trade.openScreenshot);
+        closeScreenshotPath = saveScreenshotDataUrl(trade.closeScreenshot);
+      } catch (error) {
+        throw new Error(`строка ${trade.rowNumber}: ${error.message}`);
+      }
+
+      await dbRun(insertQuery, [
+        trade.symbol,
+        positionSide,
+        price,
+        quantity,
+        price,
+        price,
+        trade.tvx || null,
+        trade.openDateTime || new Date().toISOString(),
+        closeDateTime,
+        trade.profitLoss || null,
+        toNullableNumber(trade.purchaseVolume),
+        toNullableNumber(trade.commission),
+        toNullableNumber(trade.profitAmount),
+        toNullableNumber(trade.lossAmount),
+        toNullableNumber(trade.riskUsdt),
+        positionUsdt,
+        trade.note || null,
+        trade.timeframe || null,
+        'history',
+        openScreenshotPath,
+        closeScreenshotPath
+      ]);
+      imported.push(trade.symbol);
+    }
+
+    await dbRun('COMMIT');
+    res.json({ success: true, imported: imported.length, skipped: skipped.length });
+  } catch (error) {
+    await dbRun('ROLLBACK').catch(() => {});
+    res.status(400).json({ error: error.message });
+  }
+});
 
 const calculateClosePositionData = (originalPrice, originalQuantity, positionSide, stopLossPrice, takeProfitPrice, profitLoss) => {
   const price = parseFloat(originalPrice);
@@ -800,7 +940,7 @@ const placeCompoundOrder = async (compoundOrderData) => {
         success: true,
         orderIds: {
           entry: entryOrder.orderId,
-          stopLoss: slOrder.orderId
+          stopLoss: slOrder.algoId
         },
         orders: placedOrders,
         note: 'Take profit order not placed. Please manually set take profit or add it separately.'

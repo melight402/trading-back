@@ -306,12 +306,12 @@ router.get('/', (req, res) => {
 });
 
 router.get('/tvx_list', (req, res) => {
-  db.all('SELECT DISTINCT tvx FROM positions WHERE tvx IS NOT NULL AND tvx != "" ORDER BY tvx', (err, rows) => {
+  db.all('SELECT value FROM strategies ORDER BY label COLLATE NOCASE', (err, rows) => {
     if (err) {
       console.error('Error fetching TVX list:', err);
       res.status(500).json({ error: 'Failed to fetch TVX list' });
     } else {
-      const tvxList = rows.map(row => row.tvx).filter(Boolean);
+      const tvxList = rows.map(row => row.value).filter(Boolean);
       res.json({ tvxList });
     }
   });
@@ -467,9 +467,6 @@ router.get('/:id', (req, res) => {
 
 router.delete('/:id', (req, res) => {
   const { id } = req.params;
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  const screenshotsPath = process.env.SCREENSHOTS_PATH || path.join(__dirname, '../data/screenshots');
 
   db.get('SELECT open_screenshot_path, close_screenshot_path FROM positions WHERE id = ?', [id], (err, position) => {
     if (err) {
@@ -481,33 +478,16 @@ router.delete('/:id', (req, res) => {
       return res.status(404).json({ error: 'Position not found' });
     }
 
-    const screenshotsToDelete = [];
-    if (position.open_screenshot_path) {
-      screenshotsToDelete.push(position.open_screenshot_path);
-    }
-    if (position.close_screenshot_path) {
-      screenshotsToDelete.push(position.close_screenshot_path);
-    }
-
     db.run('DELETE FROM positions WHERE id = ?', [id], function(deleteErr) {
       if (deleteErr) {
         console.error('Error deleting position:', deleteErr);
         return res.status(500).json({ error: 'Failed to delete position', details: deleteErr.message });
       }
 
-      screenshotsToDelete.forEach(filename => {
-        const filePath = path.join(screenshotsPath, filename);
-        fs.unlink(filePath, (unlinkErr) => {
-          if (unlinkErr && unlinkErr.code !== 'ENOENT') {
-            console.error(`Error deleting screenshot ${filename}:`, unlinkErr);
-          }
-        });
-      });
-
       res.json({
         success: true,
         message: 'Position deleted successfully',
-        deletedScreenshots: screenshotsToDelete.length
+        deletedScreenshots: 0
       });
     });
   });
